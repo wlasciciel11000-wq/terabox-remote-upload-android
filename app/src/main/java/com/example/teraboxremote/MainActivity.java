@@ -20,7 +20,6 @@ import androidx.appcompat.app.AppCompatActivity;
 
 import org.json.JSONObject;
 
-import java.io.IOException;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 
@@ -46,7 +45,7 @@ public class MainActivity extends AppCompatActivity {
 
     @SuppressLint("SetJavaScriptEnabled")
     @Override
-    protected void Bundle savedInstanceState) {
+    protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         setContentView(R.layout.activity_main);
 
@@ -63,7 +62,6 @@ public class MainActivity extends AppCompatActivity {
         WebSettings webSettings = webView.getSettings();
         webSettings.setJavaScriptEnabled(true);
         webSettings.setDomStorageEnabled(true);
-        // Omijanie CORS w WebView (uproszczone dla celów edukacyjnych/demonstracyjnych)
         webSettings.setAllowFileAccessFromFileURLs(true);
         webSettings.setAllowUniversalAccessFromFileURLs(true);
 
@@ -119,7 +117,6 @@ public class MainActivity extends AppCompatActivity {
 
         executor.execute(() -> {
             try {
-                // Endpoint dla dodawania zadania offline download
                 String apiUrl = "https://www.1024terabox.com/rest/2.0/cloud_dl/add_task?app_id=250528";
                 FormBody formBody = new FormBody.Builder()
                         .add("save_path", "/")
@@ -168,14 +165,12 @@ public class MainActivity extends AppCompatActivity {
                             if (response.isSuccessful() && response.body() != null) {
                                 String responseData = response.body().string();
                                 JSONObject json = new JSONObject(responseData);
-                                // Logika parsowania statusu i postępu
-                                // TeraBox zwraca listę zadań w "task_info"
                                 if (json.has("task_info")) {
                                     JSONObject task = json.getJSONArray("task_info").getJSONObject(0);
-                                    int status = task.getInt("status"); // 0: success, 1: downloading, 2: waiting, etc.
+                                    int status = task.getInt("status");
                                     long finished = task.optLong("finished_size", 0);
                                     long total = task.optLong("file_size", 1);
-                                    int progress = (int) ((finished * 100) / total);
+                                    int progress = (int) ((finished * 100) / (total > 0 ? total : 1));
 
                                     mainHandler.post(() -> {
                                         pbProgress.setProgress(progress);
