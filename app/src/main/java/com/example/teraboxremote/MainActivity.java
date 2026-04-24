@@ -254,7 +254,8 @@ public class MainActivity extends AppCompatActivity {
                     Thread.sleep(5000);
                 } catch (Exception e) {
                     retryCount++;
-                    mainHandler.post(() -> tvStatus.setText("Network issue, retrying (" + retryCount + ")..."));
+                    final int currentRetry = retryCount;
+                    mainHandler.post(() -> tvStatus.setText("Network issue, retrying (" + currentRetry + ")..."));
                     if (retryCount > 5) {
                         mainHandler.post(() -> tvStatus.setText("Status Error: " + e.getMessage()));
                         break;
