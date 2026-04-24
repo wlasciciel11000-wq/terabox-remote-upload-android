@@ -99,7 +99,7 @@ public class MainActivity extends AppCompatActivity {
         btnLogin.setOnClickListener(v -> {
             webView.setVisibility(View.VISIBLE);
             // URL kierujący bezpośrednio do logowania e-mail
-            webView.loadUrl("https://www.terabox.com/wap/login?type=email");
+            webView.loadUrl("https://www.terabox.com/main");
         });
 
         btnStart.setOnClickListener(v -> startRemoteUpload());
