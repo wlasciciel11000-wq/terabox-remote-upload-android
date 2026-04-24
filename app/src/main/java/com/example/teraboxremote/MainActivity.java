@@ -66,27 +66,18 @@ public class MainActivity extends AppCompatActivity {
         webSettings.setAllowFileAccessFromFileURLs(true);
         webSettings.setAllowUniversalAccessFromFileURLs(true);
         
-        // Włączenie obsługi zoomu
         webSettings.setSupportZoom(true);
         webSettings.setBuiltInZoomControls(true);
-        webSettings.setDisplayZoomControls(false); // Ukrycie przycisków +/- na rzecz gestów
+        webSettings.setDisplayZoomControls(false);
         
-        // Poprawa responsywności i wpisywania tekstu
         webSettings.setUseWideViewPort(true);
         webSettings.setLoadWithOverviewMode(true);
         webView.setFocusable(true);
         webView.setFocusableInTouchMode(true);
-        webView.requestFocus(View.FOCUS_DOWN);
         
-        // Obsługa dotyku dla focusu
         webView.setOnTouchListener((v, event) -> {
-            switch (event.getAction()) {
-                case MotionEvent.ACTION_DOWN:
-                case MotionEvent.ACTION_UP:
-                    if (!v.hasFocus()) {
-                        v.requestFocus();
-                    }
-                    break;
+            if (event.getAction() == MotionEvent.ACTION_DOWN || event.getAction() == MotionEvent.ACTION_UP) {
+                if (!v.hasFocus()) v.requestFocus();
             }
             return false;
         });
@@ -107,7 +98,8 @@ public class MainActivity extends AppCompatActivity {
 
         btnLogin.setOnClickListener(v -> {
             webView.setVisibility(View.VISIBLE);
-            webView.loadUrl("https://www.terabox.com/main");
+            // URL kierujący bezpośrednio do logowania e-mail
+            webView.loadUrl("https://www.terabox.com/wap/login?type=email");
         });
 
         btnStart.setOnClickListener(v -> startRemoteUpload());
@@ -122,8 +114,10 @@ public class MainActivity extends AppCompatActivity {
             for (String part : parts) {
                 if (part.trim().startsWith("ndus=")) {
                     ndus = part.trim().substring(5);
-                    tvStatus.setText("Status: Logged In (ndus found)");
-                    webView.setVisibility(View.GONE);
+                    mainHandler.post(() -> {
+                        tvStatus.setText("Status: Logged In (ndus found)");
+                        webView.setVisibility(View.GONE);
+                    });
                     break;
                 }
             }
@@ -143,7 +137,9 @@ public class MainActivity extends AppCompatActivity {
 
         executor.execute(() -> {
             try {
-                String apiUrl = "https://www.1024terabox.com/rest/2.0/cloud_dl/add_task?app_id=250528";
+                // Poprawiony endpoint z dodatkowymi parametrami sesji
+                String apiUrl = "https://www.1024terabox.com/rest/2.0/cloud_dl/add_task?app_id=250528&ndus=" + ndus;
+                
                 FormBody formBody = new FormBody.Builder()
                         .add("save_path", "/")
                         .add("source_url", url)
@@ -152,68 +148,79 @@ public class MainActivity extends AppCompatActivity {
                 Request request = new Request.Builder()
                         .url(apiUrl)
                         .addHeader("Cookie", "ndus=" + ndus)
+                        .addHeader("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36")
                         .post(formBody)
                         .build();
 
                 try (Response response = client.newCall(request).execute()) {
-                    if (response.isSuccessful() && response.body() != null) {
-                        String responseData = response.body().string();
+                    String responseData = response.body() != null ? response.body().string() : "";
+                    if (response.isSuccessful() && !responseData.isEmpty()) {
                         JSONObject json = new JSONObject(responseData);
                         if (json.has("task_id")) {
                             currentTaskId = json.getString("task_id");
-                            mainHandler.post(() -> tvStatus.setText("Status: Task Started ID: " + currentTaskId));
+                            isPaused = false;
+                            mainHandler.post(() -> {
+                                tvStatus.setText("Status: Task Started ID: " + currentTaskId);
+                                pbProgress.setProgress(0);
+                                tvProgressStatus.setText("Progress: 0%");
+                            });
                             startPollingStatus();
                         } else {
-                            mainHandler.post(() -> Toast.makeText(MainActivity.this, "Failed to start task", Toast.LENGTH_SHORT).show());
+                            int errno = json.optInt("errno", -1);
+                            mainHandler.post(() -> Toast.makeText(MainActivity.this, "Error: " + errno, Toast.LENGTH_LONG).show());
                         }
+                    } else {
+                        mainHandler.post(() -> Toast.makeText(MainActivity.this, "Server error: " + response.code(), Toast.LENGTH_SHORT).show());
                     }
                 }
             } catch (Exception e) {
                 e.printStackTrace();
+                mainHandler.post(() -> Toast.makeText(MainActivity.this, "Exception: " + e.getMessage(), Toast.LENGTH_LONG).show());
             }
         });
     }
 
     private void startPollingStatus() {
-        executor.execute(new Runnable() {
-            @Override
-            public void run() {
-                while (!currentTaskId.isEmpty() && !isPaused) {
-                    try {
-                        String statusUrl = "https://www.1024terabox.com/rest/2.0/cloud_dl/query_task?app_id=250528&task_ids=" + currentTaskId;
-                        Request request = new Request.Builder()
-                                .url(statusUrl)
-                                .addHeader("Cookie", "ndus=" + ndus)
-                                .get()
-                                .build();
+        executor.execute(() -> {
+            while (!currentTaskId.isEmpty() && !isPaused) {
+                try {
+                    String statusUrl = "https://www.1024terabox.com/rest/2.0/cloud_dl/query_task?app_id=250528&ndus=" + ndus + "&task_ids=" + currentTaskId;
+                    Request request = new Request.Builder()
+                            .url(statusUrl)
+                            .addHeader("Cookie", "ndus=" + ndus)
+                            .get()
+                            .build();
 
-                        try (Response response = client.newCall(request).execute()) {
-                            if (response.isSuccessful() && response.body() != null) {
-                                String responseData = response.body().string();
-                                JSONObject json = new JSONObject(responseData);
-                                if (json.has("task_info")) {
-                                    JSONObject task = json.getJSONArray("task_info").getJSONObject(0);
-                                    int status = task.getInt("status");
-                                    long finished = task.optLong("finished_size", 0);
-                                    long total = task.optLong("file_size", 1);
-                                    int progress = (int) ((finished * 100) / (total > 0 ? total : 1));
+                    try (Response response = client.newCall(request).execute()) {
+                        if (response.isSuccessful() && response.body() != null) {
+                            String responseData = response.body().string();
+                            JSONObject json = new JSONObject(responseData);
+                            if (json.has("task_info")) {
+                                JSONObject task = json.getJSONArray("task_info").getJSONObject(0);
+                                int status = task.getInt("status"); // 0: success, 1: downloading, 2: waiting
+                                long finished = task.optLong("finished_size", 0);
+                                long total = task.optLong("file_size", 1);
+                                int progress = (int) ((finished * 100) / (total > 0 ? total : 1));
 
-                                    mainHandler.post(() -> {
-                                        pbProgress.setProgress(progress);
-                                        tvProgressStatus.setText("Progress: " + progress + "%");
-                                        if (status == 0) {
-                                            tvStatus.setText("Status: Completed");
-                                            currentTaskId = "";
-                                        }
-                                    });
-                                }
+                                mainHandler.post(() -> {
+                                    pbProgress.setProgress(progress);
+                                    tvProgressStatus.setText("Progress: " + progress + "%");
+                                    if (status == 0) {
+                                        tvStatus.setText("Status: Completed");
+                                        currentTaskId = "";
+                                    } else if (status == 1) {
+                                        tvStatus.setText("Status: Downloading...");
+                                    } else if (status == 2) {
+                                        tvStatus.setText("Status: Waiting...");
+                                    }
+                                });
                             }
                         }
-                        Thread.sleep(2000);
-                    } catch (Exception e) {
-                        e.printStackTrace();
-                        break;
                     }
+                    Thread.sleep(3000);
+                } catch (Exception e) {
+                    e.printStackTrace();
+                    break;
                 }
             }
         });
