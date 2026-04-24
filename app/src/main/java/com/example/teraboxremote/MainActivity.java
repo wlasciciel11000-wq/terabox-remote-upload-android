@@ -19,6 +19,7 @@ import android.widget.Toast;
 
 import androidx.appcompat.app.AppCompatActivity;
 
+import org.json.JSONArray;
 import org.json.JSONObject;
 
 import java.util.concurrent.ExecutorService;
@@ -42,7 +43,6 @@ public class MainActivity extends AppCompatActivity {
     private String currentTaskId = "";
     private boolean isPaused = false;
     
-    // Zwiększone timeouty dla uniknięcia SSL Handshake Timeout
     private final OkHttpClient client = new OkHttpClient.Builder()
             .connectTimeout(30, TimeUnit.SECONDS)
             .readTimeout(30, TimeUnit.SECONDS)
@@ -144,7 +144,7 @@ public class MainActivity extends AppCompatActivity {
 
         executor.execute(() -> {
             try {
-                // Używamy www.terabox.com dla spójności z ciasteczkami
+                mainHandler.post(() -> tvStatus.setText("Status: Adding task..."));
                 String apiUrl = "https://www.terabox.com/rest/2.0/services/cloud_dl?method=add_task&app_id=250528";
                 
                 FormBody formBody = new FormBody.Builder()
@@ -168,22 +168,22 @@ public class MainActivity extends AppCompatActivity {
                             currentTaskId = json.getString("task_id");
                             isPaused = false;
                             mainHandler.post(() -> {
-                                tvStatus.setText("Status: Task Started ID: " + currentTaskId);
+                                tvStatus.setText("Status: Task Added (ID: " + currentTaskId + ")");
                                 pbProgress.setProgress(0);
                                 tvProgressStatus.setText("Progress: 0%");
                             });
                             startPollingStatus();
                         } else {
                             int errno = json.optInt("errno", -1);
-                            mainHandler.post(() -> tvStatus.setText("Error: " + errno));
+                            mainHandler.post(() -> tvStatus.setText("Error adding task: " + errno));
                         }
                     } else {
-                        mainHandler.post(() -> tvStatus.setText("Server error: " + response.code()));
+                        mainHandler.post(() -> tvStatus.setText("Server error (Add): " + response.code()));
                     }
                 }
             } catch (Exception e) {
                 e.printStackTrace();
-                mainHandler.post(() -> tvStatus.setText("Exception: " + e.getMessage()));
+                mainHandler.post(() -> tvStatus.setText("Exception (Add): " + e.getMessage()));
             }
         });
     }
@@ -192,10 +192,12 @@ public class MainActivity extends AppCompatActivity {
         executor.execute(() -> {
             while (!currentTaskId.isEmpty() && !isPaused) {
                 try {
-                    String statusUrl = "https://www.terabox.com/rest/2.0/services/cloud_dl?method=query_task&app_id=250528&task_ids=" + currentTaskId;
+                    // Dodano ndus do URL zapytania o status dla pewności
+                    String statusUrl = "https://www.terabox.com/rest/2.0/services/cloud_dl?method=query_task&app_id=250528&task_ids=" + currentTaskId + "&ndus=" + ndus;
                     Request request = new Request.Builder()
                             .url(statusUrl)
                             .addHeader("Cookie", "ndus=" + ndus)
+                            .addHeader("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36")
                             .get()
                             .build();
 
@@ -204,30 +206,60 @@ public class MainActivity extends AppCompatActivity {
                             String responseData = response.body().string();
                             JSONObject json = new JSONObject(responseData);
                             if (json.has("task_info")) {
-                                JSONObject task = json.getJSONArray("task_info").getJSONObject(0);
-                                int status = task.getInt("status");
-                                long finished = task.optLong("finished_size", 0);
-                                long total = task.optLong("file_size", 1);
-                                int progress = (int) ((finished * 100) / (total > 0 ? total : 1));
-
-                                mainHandler.post(() -> {
-                                    pbProgress.setProgress(progress);
-                                    tvProgressStatus.setText("Progress: " + progress + "%");
-                                    if (status == 0) {
-                                        tvStatus.setText("Status: Completed");
-                                        currentTaskId = "";
-                                    } else if (status == 1) {
-                                        tvStatus.setText("Status: Downloading...");
-                                    } else if (status == 2) {
-                                        tvStatus.setText("Status: Waiting...");
+                                JSONArray taskArray = json.getJSONArray("task_info");
+                                if (taskArray.length() > 0) {
+                                    JSONObject task = taskArray.getJSONObject(0);
+                                    int status = task.getInt("status"); // 0: success, 1: downloading, 2: waiting, 3: failed
+                                    long finished = task.optLong("finished_size", 0);
+                                    long total = task.optLong("file_size", 0);
+                                    
+                                    // Obliczanie postępu
+                                    final int progress;
+                                    if (total > 0) {
+                                        progress = (int) ((finished * 100) / total);
+                                    } else if (status == 0) {
+                                        progress = 100;
+                                    } else {
+                                        progress = 0;
                                     }
-                                });
+
+                                    mainHandler.post(() -> {
+                                        pbProgress.setProgress(progress);
+                                        tvProgressStatus.setText("Progress: " + progress + "% (" + (finished/1024) + "KB / " + (total/1024) + "KB)");
+                                        
+                                        switch (status) {
+                                            case 0:
+                                                tvStatus.setText("Status: Completed Successfully");
+                                                currentTaskId = "";
+                                                break;
+                                            case 1:
+                                                tvStatus.setText("Status: Downloading...");
+                                                break;
+                                            case 2:
+                                                tvStatus.setText("Status: Waiting in queue...");
+                                                break;
+                                            case 3:
+                                                tvStatus.setText("Status: Failed (Server side)");
+                                                currentTaskId = "";
+                                                break;
+                                            default:
+                                                tvStatus.setText("Status: Unknown (" + status + ")");
+                                                break;
+                                        }
+                                    });
+                                }
+                            } else {
+                                int errno = json.optInt("errno", -1);
+                                mainHandler.post(() -> tvStatus.setText("Status Error: " + errno));
                             }
+                        } else {
+                            mainHandler.post(() -> tvStatus.setText("Server error (Status): " + response.code()));
                         }
                     }
-                    Thread.sleep(3000);
+                    Thread.sleep(2000);
                 } catch (Exception e) {
                     e.printStackTrace();
+                    mainHandler.post(() -> tvStatus.setText("Exception (Status): " + e.getMessage()));
                     break;
                 }
             }
@@ -236,7 +268,7 @@ public class MainActivity extends AppCompatActivity {
 
     private void pauseTask() {
         isPaused = true;
-        tvStatus.setText("Status: Paused");
+        tvStatus.setText("Status: Paused by user");
     }
 
     private void resumeTask() {
