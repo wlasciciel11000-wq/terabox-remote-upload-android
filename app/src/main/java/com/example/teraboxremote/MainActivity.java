@@ -23,6 +23,7 @@ import org.json.JSONObject;
 
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
+import java.util.concurrent.TimeUnit;
 
 import okhttp3.FormBody;
 import okhttp3.OkHttpClient;
@@ -40,7 +41,14 @@ public class MainActivity extends AppCompatActivity {
     private String ndus = "";
     private String currentTaskId = "";
     private boolean isPaused = false;
-    private final OkHttpClient client = new OkHttpClient();
+    
+    // Zwiększone timeouty dla uniknięcia SSL Handshake Timeout
+    private final OkHttpClient client = new OkHttpClient.Builder()
+            .connectTimeout(30, TimeUnit.SECONDS)
+            .readTimeout(30, TimeUnit.SECONDS)
+            .writeTimeout(30, TimeUnit.SECONDS)
+            .build();
+            
     private final ExecutorService executor = Executors.newSingleThreadExecutor();
     private final Handler mainHandler = new Handler(Looper.getMainLooper());
 
@@ -136,8 +144,7 @@ public class MainActivity extends AppCompatActivity {
 
         executor.execute(() -> {
             try {
-                // Zmiana na endpoint pan.baidu.com, który jest często używany przez infrastrukturę TeraBox
-                // oraz dodanie wymaganych parametrów zapytania
+                // Używamy www.terabox.com dla spójności z ciasteczkami
                 String apiUrl = "https://www.terabox.com/rest/2.0/services/cloud_dl?method=add_task&app_id=250528";
                 
                 FormBody formBody = new FormBody.Builder()
@@ -168,7 +175,7 @@ public class MainActivity extends AppCompatActivity {
                             startPollingStatus();
                         } else {
                             int errno = json.optInt("errno", -1);
-                            mainHandler.post(() -> Toast.makeText(MainActivity.this, "Error: " + errno + " (check logs)", Toast.LENGTH_LONG).show());
+                            mainHandler.post(() -> tvStatus.setText("Error: " + errno));
                         }
                     } else {
                         mainHandler.post(() -> tvStatus.setText("Server error: " + response.code()));
@@ -176,7 +183,7 @@ public class MainActivity extends AppCompatActivity {
                 }
             } catch (Exception e) {
                 e.printStackTrace();
-                mainHandler.post(() -> Toast.makeText(MainActivity.this, "Exception: " + e.getMessage(), Toast.LENGTH_LONG).show());
+                mainHandler.post(() -> tvStatus.setText("Exception: " + e.getMessage()));
             }
         });
     }
