@@ -22,6 +22,7 @@ import androidx.appcompat.app.AppCompatActivity;
 import org.json.JSONArray;
 import org.json.JSONObject;
 
+import java.util.Iterator;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
@@ -43,7 +44,6 @@ public class MainActivity extends AppCompatActivity {
     private String currentTaskId = "";
     private boolean isPaused = false;
     
-    // Jeszcze większe timeouty dla stabilności na słabych łączach
     private final OkHttpClient client = new OkHttpClient.Builder()
             .connectTimeout(60, TimeUnit.SECONDS)
             .readTimeout(60, TimeUnit.SECONDS)
@@ -205,43 +205,58 @@ public class MainActivity extends AppCompatActivity {
 
                     try (Response response = client.newCall(request).execute()) {
                         if (response.isSuccessful() && response.body() != null) {
-                            retryCount = 0; // Reset po udanym połączeniu
+                            retryCount = 0;
                             String responseData = response.body().string();
                             JSONObject json = new JSONObject(responseData);
+                            
+                            JSONObject taskInfo = null;
                             if (json.has("task_info")) {
-                                JSONArray taskArray = json.getJSONArray("task_info");
-                                if (taskArray.length() > 0) {
-                                    JSONObject task = taskArray.getJSONObject(0);
-                                    int status = task.getInt("status");
-                                    long finished = task.optLong("finished_size", 0);
-                                    long total = task.optLong("file_size", 0);
-                                    
-                                    final int progress = (total > 0) ? (int) ((finished * 100) / total) : (status == 0 ? 100 : 0);
-
-                                    mainHandler.post(() -> {
-                                        pbProgress.setProgress(progress);
-                                        tvProgressStatus.setText("Progress: " + progress + "% (" + (finished/1024) + "KB / " + (total/1024) + "KB)");
-                                        
-                                        switch (status) {
-                                            case 0: tvStatus.setText("Status: Completed Successfully"); currentTaskId = ""; break;
-                                            case 1: tvStatus.setText("Status: Downloading..."); break;
-                                            case 2: tvStatus.setText("Status: Waiting in queue..."); break;
-                                            case 3: tvStatus.setText("Status: Failed (Server side)"); currentTaskId = ""; break;
-                                            default: tvStatus.setText("Status: Unknown (" + status + ")"); break;
-                                        }
-                                    });
+                                Object info = json.get("task_info");
+                                if (info instanceof JSONArray) {
+                                    JSONArray array = (JSONArray) info;
+                                    if (array.length() > 0) taskInfo = array.getJSONObject(0);
+                                } else if (info instanceof JSONObject) {
+                                    JSONObject obj = (JSONObject) info;
+                                    // Jeśli to obiekt, bierzemy pierwszy klucz (zazwyczaj ID zadania)
+                                    Iterator<String> keys = obj.keys();
+                                    if (keys.hasNext()) taskInfo = obj.getJSONObject(keys.next());
                                 }
+                            }
+
+                            if (taskInfo != null) {
+                                final JSONObject task = taskInfo;
+                                int status = task.getInt("status");
+                                long finished = task.optLong("finished_size", 0);
+                                long total = task.optLong("file_size", 0);
+                                
+                                final int progress = (total > 0) ? (int) ((finished * 100) / total) : (status == 0 ? 100 : 0);
+
+                                mainHandler.post(() -> {
+                                    pbProgress.setProgress(progress);
+                                    tvProgressStatus.setText("Progress: " + progress + "% (" + (finished/1024) + "KB / " + (total/1024) + "KB)");
+                                    
+                                    switch (status) {
+                                        case 0: tvStatus.setText("Status: Completed Successfully"); currentTaskId = ""; break;
+                                        case 1: tvStatus.setText("Status: Downloading..."); break;
+                                        case 2: tvStatus.setText("Status: Waiting in queue..."); break;
+                                        case 3: tvStatus.setText("Status: Failed (Server side)"); currentTaskId = ""; break;
+                                        default: tvStatus.setText("Status: Unknown (" + status + ")"); break;
+                                    }
+                                });
+                            } else {
+                                int errno = json.optInt("errno", -1);
+                                mainHandler.post(() -> tvStatus.setText("Status Error: " + errno));
                             }
                         } else {
                             mainHandler.post(() -> tvStatus.setText("Server error (Status): " + response.code()));
                         }
                     }
-                    Thread.sleep(5000); // Zwiększony odstęp między zapytaniami dla stabilności
+                    Thread.sleep(5000);
                 } catch (Exception e) {
                     retryCount++;
                     mainHandler.post(() -> tvStatus.setText("Network issue, retrying (" + retryCount + ")..."));
                     if (retryCount > 5) {
-                        mainHandler.post(() -> tvStatus.setText("Status Timeout: " + e.getMessage()));
+                        mainHandler.post(() -> tvStatus.setText("Status Error: " + e.getMessage()));
                         break;
                     }
                     try { Thread.sleep(5000); } catch (InterruptedException ignored) {}
