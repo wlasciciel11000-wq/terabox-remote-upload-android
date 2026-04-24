@@ -43,10 +43,12 @@ public class MainActivity extends AppCompatActivity {
     private String currentTaskId = "";
     private boolean isPaused = false;
     
+    // Jeszcze większe timeouty dla stabilności na słabych łączach
     private final OkHttpClient client = new OkHttpClient.Builder()
-            .connectTimeout(30, TimeUnit.SECONDS)
-            .readTimeout(30, TimeUnit.SECONDS)
-            .writeTimeout(30, TimeUnit.SECONDS)
+            .connectTimeout(60, TimeUnit.SECONDS)
+            .readTimeout(60, TimeUnit.SECONDS)
+            .writeTimeout(60, TimeUnit.SECONDS)
+            .retryOnConnectionFailure(true)
             .build();
             
     private final ExecutorService executor = Executors.newSingleThreadExecutor();
@@ -190,9 +192,9 @@ public class MainActivity extends AppCompatActivity {
 
     private void startPollingStatus() {
         executor.execute(() -> {
+            int retryCount = 0;
             while (!currentTaskId.isEmpty() && !isPaused) {
                 try {
-                    // Dodano ndus do URL zapytania o status dla pewności
                     String statusUrl = "https://www.terabox.com/rest/2.0/services/cloud_dl?method=query_task&app_id=250528&task_ids=" + currentTaskId + "&ndus=" + ndus;
                     Request request = new Request.Builder()
                             .url(statusUrl)
@@ -203,64 +205,46 @@ public class MainActivity extends AppCompatActivity {
 
                     try (Response response = client.newCall(request).execute()) {
                         if (response.isSuccessful() && response.body() != null) {
+                            retryCount = 0; // Reset po udanym połączeniu
                             String responseData = response.body().string();
                             JSONObject json = new JSONObject(responseData);
                             if (json.has("task_info")) {
                                 JSONArray taskArray = json.getJSONArray("task_info");
                                 if (taskArray.length() > 0) {
                                     JSONObject task = taskArray.getJSONObject(0);
-                                    int status = task.getInt("status"); // 0: success, 1: downloading, 2: waiting, 3: failed
+                                    int status = task.getInt("status");
                                     long finished = task.optLong("finished_size", 0);
                                     long total = task.optLong("file_size", 0);
                                     
-                                    // Obliczanie postępu
-                                    final int progress;
-                                    if (total > 0) {
-                                        progress = (int) ((finished * 100) / total);
-                                    } else if (status == 0) {
-                                        progress = 100;
-                                    } else {
-                                        progress = 0;
-                                    }
+                                    final int progress = (total > 0) ? (int) ((finished * 100) / total) : (status == 0 ? 100 : 0);
 
                                     mainHandler.post(() -> {
                                         pbProgress.setProgress(progress);
                                         tvProgressStatus.setText("Progress: " + progress + "% (" + (finished/1024) + "KB / " + (total/1024) + "KB)");
                                         
                                         switch (status) {
-                                            case 0:
-                                                tvStatus.setText("Status: Completed Successfully");
-                                                currentTaskId = "";
-                                                break;
-                                            case 1:
-                                                tvStatus.setText("Status: Downloading...");
-                                                break;
-                                            case 2:
-                                                tvStatus.setText("Status: Waiting in queue...");
-                                                break;
-                                            case 3:
-                                                tvStatus.setText("Status: Failed (Server side)");
-                                                currentTaskId = "";
-                                                break;
-                                            default:
-                                                tvStatus.setText("Status: Unknown (" + status + ")");
-                                                break;
+                                            case 0: tvStatus.setText("Status: Completed Successfully"); currentTaskId = ""; break;
+                                            case 1: tvStatus.setText("Status: Downloading..."); break;
+                                            case 2: tvStatus.setText("Status: Waiting in queue..."); break;
+                                            case 3: tvStatus.setText("Status: Failed (Server side)"); currentTaskId = ""; break;
+                                            default: tvStatus.setText("Status: Unknown (" + status + ")"); break;
                                         }
                                     });
                                 }
-                            } else {
-                                int errno = json.optInt("errno", -1);
-                                mainHandler.post(() -> tvStatus.setText("Status Error: " + errno));
                             }
                         } else {
                             mainHandler.post(() -> tvStatus.setText("Server error (Status): " + response.code()));
                         }
                     }
-                    Thread.sleep(2000);
+                    Thread.sleep(5000); // Zwiększony odstęp między zapytaniami dla stabilności
                 } catch (Exception e) {
-                    e.printStackTrace();
-                    mainHandler.post(() -> tvStatus.setText("Exception (Status): " + e.getMessage()));
-                    break;
+                    retryCount++;
+                    mainHandler.post(() -> tvStatus.setText("Network issue, retrying (" + retryCount + ")..."));
+                    if (retryCount > 5) {
+                        mainHandler.post(() -> tvStatus.setText("Status Timeout: " + e.getMessage()));
+                        break;
+                    }
+                    try { Thread.sleep(5000); } catch (InterruptedException ignored) {}
                 }
             }
         });
