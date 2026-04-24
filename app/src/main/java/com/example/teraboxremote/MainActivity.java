@@ -98,7 +98,6 @@ public class MainActivity extends AppCompatActivity {
 
         btnLogin.setOnClickListener(v -> {
             webView.setVisibility(View.VISIBLE);
-            // URL kierujący bezpośrednio do logowania e-mail
             webView.loadUrl("https://www.terabox.com/main");
         });
 
@@ -137,8 +136,9 @@ public class MainActivity extends AppCompatActivity {
 
         executor.execute(() -> {
             try {
-                // Poprawiony endpoint z dodatkowymi parametrami sesji
-                String apiUrl = "https://www.1024terabox.com/rest/2.0/cloud_dl/add_task?app_id=250528&ndus=" + ndus;
+                // Zmiana na endpoint pan.baidu.com, który jest często używany przez infrastrukturę TeraBox
+                // oraz dodanie wymaganych parametrów zapytania
+                String apiUrl = "https://www.terabox.com/rest/2.0/services/cloud_dl?method=add_task&app_id=250528";
                 
                 FormBody formBody = new FormBody.Builder()
                         .add("save_path", "/")
@@ -149,6 +149,7 @@ public class MainActivity extends AppCompatActivity {
                         .url(apiUrl)
                         .addHeader("Cookie", "ndus=" + ndus)
                         .addHeader("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36")
+                        .addHeader("Referer", "https://www.terabox.com/main")
                         .post(formBody)
                         .build();
 
@@ -167,10 +168,10 @@ public class MainActivity extends AppCompatActivity {
                             startPollingStatus();
                         } else {
                             int errno = json.optInt("errno", -1);
-                            mainHandler.post(() -> Toast.makeText(MainActivity.this, "Error: " + errno, Toast.LENGTH_LONG).show());
+                            mainHandler.post(() -> Toast.makeText(MainActivity.this, "Error: " + errno + " (check logs)", Toast.LENGTH_LONG).show());
                         }
                     } else {
-                        mainHandler.post(() -> Toast.makeText(MainActivity.this, "Server error: " + response.code(), Toast.LENGTH_SHORT).show());
+                        mainHandler.post(() -> tvStatus.setText("Server error: " + response.code()));
                     }
                 }
             } catch (Exception e) {
@@ -184,7 +185,7 @@ public class MainActivity extends AppCompatActivity {
         executor.execute(() -> {
             while (!currentTaskId.isEmpty() && !isPaused) {
                 try {
-                    String statusUrl = "https://www.1024terabox.com/rest/2.0/cloud_dl/query_task?app_id=250528&ndus=" + ndus + "&task_ids=" + currentTaskId;
+                    String statusUrl = "https://www.terabox.com/rest/2.0/services/cloud_dl?method=query_task&app_id=250528&task_ids=" + currentTaskId;
                     Request request = new Request.Builder()
                             .url(statusUrl)
                             .addHeader("Cookie", "ndus=" + ndus)
@@ -197,7 +198,7 @@ public class MainActivity extends AppCompatActivity {
                             JSONObject json = new JSONObject(responseData);
                             if (json.has("task_info")) {
                                 JSONObject task = json.getJSONArray("task_info").getJSONObject(0);
-                                int status = task.getInt("status"); // 0: success, 1: downloading, 2: waiting
+                                int status = task.getInt("status");
                                 long finished = task.optLong("finished_size", 0);
                                 long total = task.optLong("file_size", 1);
                                 int progress = (int) ((finished * 100) / (total > 0 ? total : 1));
