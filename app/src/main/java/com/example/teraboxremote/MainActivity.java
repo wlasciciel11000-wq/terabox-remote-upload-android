@@ -158,6 +158,7 @@ public class MainActivity extends AppCompatActivity {
                 
                 FormBody formBody = new FormBody.Builder()
                         .add("save_path", "/") // Root folder
+                        .add("path", "/") // Alternative path parameter for some API versions
                         .add("source_url", url)
                         .add("timeout", "2147483647") // Max timeout for the task
                         .build();
@@ -173,6 +174,7 @@ public class MainActivity extends AppCompatActivity {
                         .build();
 
                 try (Response response = client.newCall(request).execute()) {
+                    String responseData = response.body() != null ? response.body().string() : "No data";
                     if (response.isSuccessful()) {
                         mainHandler.post(() -> {
                             tvStatus.setText("Status: Task Added Successfully");
@@ -180,7 +182,10 @@ public class MainActivity extends AppCompatActivity {
                             fetchTaskList();
                         });
                     } else {
-                        mainHandler.post(() -> tvStatus.setText("Error: " + response.code()));
+                        mainHandler.post(() -> {
+                            tvStatus.setText("Error: " + response.code() + " - " + responseData);
+                            android.util.Log.e("TeraBox", "Add task failed: " + responseData);
+                        });
                     }
                 }
             } catch (Exception e) {
