@@ -31,6 +31,7 @@ import java.util.List;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
+import java.util.Random;
 
 import okhttp3.FormBody;
 import okhttp3.OkHttpClient;
@@ -62,6 +63,7 @@ public class MainActivity extends AppCompatActivity {
             
     private final ExecutorService executor = Executors.newFixedThreadPool(4);
     private final Handler mainHandler = new Handler(Looper.getMainLooper());
+    private final Random random = new Random();
 
     @SuppressLint({"SetJavaScriptEnabled", "ClickableViewAccessibility"})
     @Override
@@ -170,6 +172,15 @@ public class MainActivity extends AppCompatActivity {
         });
     }
 
+    private String generateDpLogId() {
+        // Generate a random hex string similar to TeraboxUploaderCLI
+        StringBuilder sb = new StringBuilder();
+        for (int i = 0; i < 10; i++) {
+            sb.append(String.format("%02x", random.nextInt(256)));
+        }
+        return sb.toString().toUpperCase();
+    }
+
     private void startRemoteUpload() {
         String url = etLink.getText().toString().trim();
         if (ndus.isEmpty()) {
@@ -185,31 +196,31 @@ public class MainActivity extends AppCompatActivity {
             try {
                 mainHandler.post(() -> tvStatus.setText("Status: Adding task..."));
                 
-                // TeraBox 2025 API parameters - matching CLI precisely
-                // Added t=current_time to avoid cache/replay issues
-                long timestamp = System.currentTimeMillis();
-                String apiUrl = "https://www.terabox.com/rest/2.0/services/cloud_dl?method=add_task"
+                // TeraBox 2025 API parameters - using 1024terabox.com domain
+                // Generate dp-logid for proper request tracking
+                String dpLogId = generateDpLogId();
+                String apiUrl = "https://www.1024terabox.com/rest/2.0/services/cloud_dl?method=add_task"
                         + "&app_id=" + APP_ID 
                         + "&web=1" 
                         + "&channel=dubox" 
-                        + "&clienttype=0"
+                        + "&clienttype=5"
                         + "&jsToken=" + jsToken
-                        + "&t=" + timestamp;
+                        + "&dp-logid=" + dpLogId;
 
-                // Important: source_url must be the first parameter in some API versions
+                // Important: source_url must be the first parameter
                 // We use FormBody to send parameters in the POST body as TeraBox expects
                 FormBody formBody = new FormBody.Builder()
-                        .add("save_path", "/")
                         .add("source_url", url)
+                        .add("save_path", "/")
                         .build();
 
                 Request request = new Request.Builder()
                         .url(apiUrl)
                         .addHeader("Cookie", allCookies)
                         .addHeader("User-Agent", USER_AGENT)
-                        .addHeader("Referer", "https://www.terabox.com/main")
-                        .addHeader("Origin", "https://www.terabox.com")
-                        .addHeader("X-Requested-With", "XMLHttpRequest")
+                        .addHeader("Referer", "https://www.1024terabox.com/main")
+                        .addHeader("Origin", "https://www.1024terabox.com")
+                        .addHeader("Content-Type", "application/x-www-form-urlencoded")
                         .post(formBody)
                         .build();
 
@@ -243,12 +254,14 @@ public class MainActivity extends AppCompatActivity {
         if (ndus.isEmpty()) return;
         executor.execute(() -> {
             try {
-                String listUrl = "https://www.terabox.com/rest/2.0/services/cloud_dl?method=list_task"
+                String dpLogId = generateDpLogId();
+                String listUrl = "https://www.1024terabox.com/rest/2.0/services/cloud_dl?method=list_task"
                         + "&app_id=" + APP_ID 
                         + "&web=1" 
                         + "&channel=dubox" 
                         + "&clienttype=5"
                         + "&jsToken=" + jsToken
+                        + "&dp-logid=" + dpLogId
                         + "&need_report=1"
                         + "&num=100"
                         + "&page=1";
@@ -302,12 +315,14 @@ public class MainActivity extends AppCompatActivity {
     private void deleteTask(String taskId) {
         executor.execute(() -> {
             try {
-                String delUrl = "https://www.terabox.com/rest/2.0/services/cloud_dl?method=cancel_task"
+                String dpLogId = generateDpLogId();
+                String delUrl = "https://www.1024terabox.com/rest/2.0/services/cloud_dl?method=cancel_task"
                         + "&app_id=" + APP_ID 
                         + "&web=1" 
                         + "&channel=dubox" 
-                        + "&clienttype=0"
-                        + "&jsToken=" + jsToken;
+                        + "&clienttype=5"
+                        + "&jsToken=" + jsToken
+                        + "&dp-logid=" + dpLogId;
                 
                 FormBody formBody = new FormBody.Builder()
                         .add("task_ids", taskId)
