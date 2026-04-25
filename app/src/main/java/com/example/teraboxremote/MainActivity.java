@@ -230,29 +230,60 @@ public class MainActivity extends AppCompatActivity {
     private void deleteTask(String taskId) {
         executor.execute(() -> {
             try {
-                // Serwer TeraBox wymaga ID zadań w formacie tablicy JSON: ["id1","id2"]
-                String taskIdsJson = "[\"" + taskId + "\"]";
-                String delUrl = "https://www.terabox.com/rest/2.0/services/cloud_dl?method=cancel_task&app_id=" + APP_ID + "&task_ids=" + taskIdsJson + "&ndus=" + ndus;
+                // TeraBox API for cancel_task usually expects task_ids as a comma-separated string or JSON array in a POST request.
+                // Based on common PCS API patterns, we use POST with task_ids in the body.
+                String delUrl = "https://www.terabox.com/rest/2.0/services/cloud_dl?method=cancel_task&app_id=" + APP_ID + "&ndus=" + ndus;
                 
+                FormBody formBody = new FormBody.Builder()
+                        .add("task_ids", taskId)
+                        .build();
+
                 Request request = new Request.Builder()
                         .url(delUrl)
                         .addHeader("Cookie", "ndus=" + ndus)
                         .addHeader("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36")
                         .addHeader("Referer", "https://www.terabox.com/main")
-                        .get()
+                        .post(formBody)
                         .build();
+
                 try (Response response = client.newCall(request).execute()) {
                     if (response.isSuccessful()) {
                         mainHandler.post(() -> {
-                            Toast.makeText(MainActivity.this, "Task deleted from server", Toast.LENGTH_SHORT).show();
+                            Toast.makeText(MainActivity.this, "Task cancelled successfully", Toast.LENGTH_SHORT).show();
                             fetchTaskList();
                         });
                     } else {
-                        mainHandler.post(() -> Toast.makeText(MainActivity.this, "Delete failed: " + response.code(), Toast.LENGTH_SHORT).show());
+                        // If POST fails, try fallback with task_id as single parameter (some versions use task_id instead of task_ids)
+                        tryFallbackDelete(taskId);
                     }
                 }
             } catch (Exception e) {
                 mainHandler.post(() -> Toast.makeText(MainActivity.this, "Error: " + e.getMessage(), Toast.LENGTH_SHORT).show());
+            }
+        });
+    }
+
+    private void tryFallbackDelete(String taskId) {
+        executor.execute(() -> {
+            try {
+                String delUrl = "https://www.terabox.com/rest/2.0/services/cloud_dl?method=cancel_task&app_id=" + APP_ID + "&task_id=" + taskId + "&ndus=" + ndus;
+                Request request = new Request.Builder()
+                        .url(delUrl)
+                        .addHeader("Cookie", "ndus=" + ndus)
+                        .post(new FormBody.Builder().build())
+                        .build();
+                try (Response response = client.newCall(request).execute()) {
+                    mainHandler.post(() -> {
+                        if (response.isSuccessful()) {
+                            Toast.makeText(MainActivity.this, "Task cancelled (fallback)", Toast.LENGTH_SHORT).show();
+                            fetchTaskList();
+                        } else {
+                            Toast.makeText(MainActivity.this, "Delete failed: " + response.code(), Toast.LENGTH_SHORT).show();
+                        }
+                    });
+                }
+            } catch (Exception e) {
+                e.printStackTrace();
             }
         });
     }
