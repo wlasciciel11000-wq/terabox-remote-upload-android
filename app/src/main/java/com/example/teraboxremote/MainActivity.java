@@ -230,12 +230,15 @@ public class MainActivity extends AppCompatActivity {
     private void deleteTask(String taskId) {
         executor.execute(() -> {
             try {
-                // Używamy metody cancel_task z pełnymi parametrami sesji
-                String delUrl = "https://www.terabox.com/rest/2.0/services/cloud_dl?method=cancel_task&app_id=" + APP_ID + "&task_ids=" + taskId + "&ndus=" + ndus;
+                // Serwer TeraBox wymaga ID zadań w formacie tablicy JSON: ["id1","id2"]
+                String taskIdsJson = "[\"" + taskId + "\"]";
+                String delUrl = "https://www.terabox.com/rest/2.0/services/cloud_dl?method=cancel_task&app_id=" + APP_ID + "&task_ids=" + taskIdsJson + "&ndus=" + ndus;
+                
                 Request request = new Request.Builder()
                         .url(delUrl)
                         .addHeader("Cookie", "ndus=" + ndus)
                         .addHeader("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36")
+                        .addHeader("Referer", "https://www.terabox.com/main")
                         .get()
                         .build();
                 try (Response response = client.newCall(request).execute()) {
