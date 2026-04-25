@@ -50,6 +50,7 @@ public class MainActivity extends AppCompatActivity {
 
     private String ndus = "";
     private String jsToken = "";
+    private String bdstoken = "";
     private String allCookies = "";
     private final String APP_ID = "250528";
     private final String USER_AGENT = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36";
@@ -120,7 +121,7 @@ public class MainActivity extends AppCompatActivity {
             public void onPageFinished(WebView view, String url) {
                 super.onPageFinished(view, url);
                 checkCookies(url);
-                extractJsToken();
+                extractTokens();
             }
         });
     }
@@ -146,28 +147,50 @@ public class MainActivity extends AppCompatActivity {
         }
     }
 
-    private void extractJsToken() {
-        // JavaScript to find jsToken in the window object or script tags
+    private void extractTokens() {
+        // JavaScript to find jsToken and bdstoken in the window object or script tags
         String js = "javascript:(function() { " +
-                "if (window.jsToken) return window.jsToken; " +
+                "var result = {jsToken: '', bdstoken: ''}; " +
+                "if (window.jsToken) result.jsToken = window.jsToken; " +
+                "if (window.locals && window.locals.bdstoken) result.bdstoken = window.locals.bdstoken; " +
+                "else if (window.bdstoken) result.bdstoken = window.bdstoken; " +
                 "var scripts = document.getElementsByTagName('script'); " +
                 "for (var i = 0; i < scripts.length; i++) { " +
-                "  var match = scripts[i].innerHTML.match(/jsToken\\s*:\\s*\"([^\"]+)\"/); " +
-                "  if (match) return match[1]; " +
+                "  var content = scripts[i].innerHTML; " +
+                "  if (!result.jsToken) { " +
+                "    var m1 = content.match(/jsToken\\s*:\\s*\"([^\"]+)\"/); " +
+                "    if (m1) result.jsToken = m1[1]; " +
+                "  } " +
+                "  if (!result.bdstoken) { " +
+                "    var m2 = content.match(/bdstoken\\s*:\\s*\"([^\"]+)\"/); " +
+                "    if (m2) result.bdstoken = m2[1]; " +
+                "  } " +
                 "} " +
-                "return ''; " +
+                "return JSON.stringify(result); " +
                 "})()";
         
         webView.evaluateJavascript(js, value -> {
-            if (value != null && !value.equals("\"\"") && !value.equals("null")) {
-                jsToken = value.replace("\"", "");
-                mainHandler.post(() -> {
-                    tvStatus.setText("Status: Logged In (jsToken captured)");
-                    if (!ndus.isEmpty()) {
-                        webView.setVisibility(View.GONE);
-                        fetchTaskList();
-                    }
-                });
+            if (value != null && !value.equals("null")) {
+                try {
+                    String jsonStr = value.startsWith("\"") ? value.substring(1, value.length() - 1).replace("\\\"", "\"") : value;
+                    JSONObject json = new JSONObject(jsonStr);
+                    jsToken = json.optString("jsToken", "");
+                    bdstoken = json.optString("bdstoken", "");
+                    
+                    mainHandler.post(() -> {
+                        if (!jsToken.isEmpty() && !bdstoken.isEmpty()) {
+                            tvStatus.setText("Status: Logged In (Tokens captured)");
+                            if (!ndus.isEmpty()) {
+                                webView.setVisibility(View.GONE);
+                                fetchTaskList();
+                            }
+                        } else if (!jsToken.isEmpty()) {
+                            tvStatus.setText("Status: Captured jsToken, waiting for bdstoken...");
+                        }
+                    });
+                } catch (Exception e) {
+                    e.printStackTrace();
+                }
             }
         });
     }
@@ -199,16 +222,15 @@ public class MainActivity extends AppCompatActivity {
                 // TeraBox 2025 API parameters - using 1024terabox.com domain
                 // Generate dp-logid for proper request tracking
                 String dpLogId = generateDpLogId();
-                String apiUrl = "https://www.1024terabox.com/rest/2.0/services/cloud_dl?method=add_task"
+                String apiUrl = "https://www.terabox.com/rest/2.0/services/cloud_dl?method=add_task"
                         + "&app_id=" + APP_ID 
                         + "&web=1" 
                         + "&channel=dubox" 
                         + "&clienttype=0"
                         + "&jsToken=" + jsToken
+                        + "&bdstoken=" + bdstoken
                         + "&dp-logid=" + dpLogId;
 
-                // Important: source_url must be the first parameter
-                // We use FormBody to send parameters in the POST body as TeraBox expects
                 FormBody formBody = new FormBody.Builder()
                         .add("source_url", url)
                         .add("save_path", "/")
@@ -218,8 +240,8 @@ public class MainActivity extends AppCompatActivity {
                         .url(apiUrl)
                         .addHeader("Cookie", allCookies)
                         .addHeader("User-Agent", USER_AGENT)
-                        .addHeader("Referer", "https://www.1024terabox.com/main")
-                        .addHeader("Origin", "https://www.1024terabox.com")
+                        .addHeader("Referer", "https://www.terabox.com/main")
+                        .addHeader("Origin", "https://www.terabox.com")
                         .addHeader("X-Requested-With", "XMLHttpRequest")
                         .post(formBody)
                         .build();
@@ -255,12 +277,13 @@ public class MainActivity extends AppCompatActivity {
         executor.execute(() -> {
             try {
                 String dpLogId = generateDpLogId();
-                String listUrl = "https://www.1024terabox.com/rest/2.0/services/cloud_dl?method=list_task"
+                String listUrl = "https://www.terabox.com/rest/2.0/services/cloud_dl?method=list_task"
                         + "&app_id=" + APP_ID 
                         + "&web=1" 
                         + "&channel=dubox" 
                         + "&clienttype=0"
                         + "&jsToken=" + jsToken
+                        + "&bdstoken=" + bdstoken
                         + "&dp-logid=" + dpLogId
                         + "&need_report=1"
                         + "&num=100"
@@ -271,6 +294,7 @@ public class MainActivity extends AppCompatActivity {
                         .addHeader("Cookie", allCookies)
                         .addHeader("User-Agent", USER_AGENT)
                         .addHeader("Referer", "https://www.terabox.com/main")
+                        .addHeader("X-Requested-With", "XMLHttpRequest")
                         .get()
                         .build();
 
@@ -316,12 +340,13 @@ public class MainActivity extends AppCompatActivity {
         executor.execute(() -> {
             try {
                 String dpLogId = generateDpLogId();
-                String delUrl = "https://www.1024terabox.com/rest/2.0/services/cloud_dl?method=cancel_task"
+                String delUrl = "https://www.terabox.com/rest/2.0/services/cloud_dl?method=cancel_task"
                         + "&app_id=" + APP_ID 
                         + "&web=1" 
                         + "&channel=dubox" 
                         + "&clienttype=0"
                         + "&jsToken=" + jsToken
+                        + "&bdstoken=" + bdstoken
                         + "&dp-logid=" + dpLogId;
                 
                 FormBody formBody = new FormBody.Builder()
@@ -333,6 +358,7 @@ public class MainActivity extends AppCompatActivity {
                         .addHeader("Cookie", allCookies)
                         .addHeader("User-Agent", USER_AGENT)
                         .addHeader("Referer", "https://www.terabox.com/main")
+                        .addHeader("X-Requested-With", "XMLHttpRequest")
                         .post(formBody)
                         .build();
 
