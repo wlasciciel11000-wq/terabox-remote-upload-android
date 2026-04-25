@@ -28,7 +28,6 @@ import org.json.JSONArray;
 import org.json.JSONObject;
 
 import java.util.ArrayList;
-import java.util.Iterator;
 import java.util.List;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
@@ -50,6 +49,9 @@ public class MainActivity extends AppCompatActivity {
     private List<TaskItem> taskList = new ArrayList<>();
 
     private String ndus = "";
+    // Używamy stałego app_id, który jest powszechnie używany w narzędziach CLI
+    private final String APP_ID = "250528";
+    
     private final OkHttpClient client = new OkHttpClient.Builder()
             .connectTimeout(60, TimeUnit.SECONDS)
             .readTimeout(60, TimeUnit.SECONDS)
@@ -150,8 +152,9 @@ public class MainActivity extends AppCompatActivity {
         executor.execute(() -> {
             try {
                 mainHandler.post(() -> tvStatus.setText("Status: Adding task..."));
-                // Używamy endpointu, który zazwyczaj działa lepiej dla remote upload
-                String apiUrl = "https://www.terabox.com/rest/2.0/services/cloud_dl?method=add_task&app_id=250528";
+                
+                // Endpoint i parametry wzorowane na terabox-upload-tool
+                String apiUrl = "https://www.terabox.com/rest/2.0/services/cloud_dl?method=add_task&app_id=" + APP_ID;
                 
                 FormBody formBody = new FormBody.Builder()
                         .add("save_path", "/")
@@ -163,20 +166,28 @@ public class MainActivity extends AppCompatActivity {
                         .addHeader("Cookie", "ndus=" + ndus)
                         .addHeader("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36")
                         .addHeader("Referer", "https://www.terabox.com/main")
+                        .addHeader("Origin", "https://www.terabox.com")
                         .post(formBody)
                         .build();
 
-                try (Response response = client.newCall(request).execute()) {
-                    if (response.isSuccessful()) {
-                        mainHandler.post(() -> {
-                            tvStatus.setText("Status: Task Added Successfully");
-                            etLink.setText("");
-                            fetchTaskList();
-                        });
-                    } else {
-                        mainHandler.post(() -> tvStatus.setText("Error: " + response.code()));
+                    try (Response response = client.newCall(request).execute()) {
+                        String responseData = response.body() != null ? response.body().string() : "";
+                        if (response.isSuccessful() && !responseData.isEmpty()) {
+                            JSONObject json = new JSONObject(responseData);
+                            if (json.has("task_id")) {
+                                mainHandler.post(() -> {
+                                    tvStatus.setText("Status: Task Added Successfully");
+                                    etLink.setText("");
+                                    fetchTaskList();
+                                });
+                            } else {
+                                int errno = json.optInt("errno", -1);
+                                mainHandler.post(() -> tvStatus.setText("Error " + errno + ": " + responseData));
+                            }
+                        } else {
+                            mainHandler.post(() -> tvStatus.setText("Server error: " + response.code()));
+                        }
                     }
-                }
             } catch (Exception e) {
                 mainHandler.post(() -> tvStatus.setText("Exception: " + e.getMessage()));
             }
@@ -187,10 +198,12 @@ public class MainActivity extends AppCompatActivity {
         if (ndus.isEmpty()) return;
         executor.execute(() -> {
             try {
-                String listUrl = "https://www.terabox.com/rest/2.0/services/cloud_dl?method=list_task&app_id=250528&ndus=" + ndus;
+                // Używamy list_task z pełnymi parametrami
+                String listUrl = "https://www.terabox.com/rest/2.0/services/cloud_dl?method=list_task&app_id=" + APP_ID + "&need_report=1";
                 Request request = new Request.Builder()
                         .url(listUrl)
                         .addHeader("Cookie", "ndus=" + ndus)
+                        .addHeader("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36")
                         .get()
                         .build();
 
@@ -229,15 +242,20 @@ public class MainActivity extends AppCompatActivity {
     private void deleteTask(String taskId) {
         executor.execute(() -> {
             try {
-                String delUrl = "https://www.terabox.com/rest/2.0/services/cloud_dl?method=cancel_task&app_id=250528&task_ids=" + taskId;
+                // W terabox-upload-tool używa się cancel_task do usuwania
+                String delUrl = "https://www.terabox.com/rest/2.0/services/cloud_dl?method=cancel_task&app_id=" + APP_ID + "&task_ids=" + taskId;
                 Request request = new Request.Builder()
                         .url(delUrl)
                         .addHeader("Cookie", "ndus=" + ndus)
+                        .addHeader("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36")
                         .get()
                         .build();
                 try (Response response = client.newCall(request).execute()) {
                     if (response.isSuccessful()) {
-                        mainHandler.post(this::fetchTaskList);
+                        mainHandler.post(() -> {
+                            Toast.makeText(MainActivity.this, "Task deleted", Toast.LENGTH_SHORT).show();
+                            fetchTaskList();
+                        });
                     }
                 }
             } catch (Exception e) {
@@ -246,7 +264,6 @@ public class MainActivity extends AppCompatActivity {
         });
     }
 
-    // Task Item Model
     static class TaskItem {
         String id;
         String name;
@@ -254,10 +271,8 @@ public class MainActivity extends AppCompatActivity {
         int progress;
     }
 
-    // Adapter for RecyclerView
     class TaskAdapter extends RecyclerView.Adapter<TaskAdapter.ViewHolder> {
         private List<TaskItem> items;
-
         TaskAdapter(List<TaskItem> items) { this.items = items; }
 
         @NonNull
@@ -272,8 +287,17 @@ public class MainActivity extends AppCompatActivity {
             TaskItem item = items.get(position);
             holder.tvName.setText(item.name);
             holder.pbProgress.setProgress(item.progress);
-            String statusText = "Status: " + (item.status == 0 ? "Completed" : (item.status == 1 ? "Downloading" : "Waiting"));
-            holder.tvStatus.setText(statusText + " (" + item.progress + "%)");
+            
+            String statusStr;
+            switch(item.status) {
+                case 0: statusStr = "Success"; break;
+                case 1: statusStr = "Downloading"; break;
+                case 2: statusStr = "Waiting"; break;
+                case 3: statusStr = "Failed"; break;
+                default: statusStr = "Unknown (" + item.status + ")";
+            }
+            
+            holder.tvStatus.setText("Status: " + statusStr + " (" + item.progress + "%)");
             holder.btnDelete.setOnClickListener(v -> deleteTask(item.id));
         }
 
