@@ -151,11 +151,15 @@ public class MainActivity extends AppCompatActivity {
         executor.execute(() -> {
             try {
                 mainHandler.post(() -> tvStatus.setText("Status: Adding task..."));
-                String apiUrl = "https://www.terabox.com/rest/2.0/services/cloud_dl?method=add_task&app_id=" + APP_ID + "&ndus=" + ndus;
+                // TeraBox/Baidu PCS API often requires additional parameters for remote upload to trigger correctly.
+                // We add 'channel=dubox', 'web=1', and 'clienttype=0' which are common in web requests.
+                String apiUrl = "https://www.terabox.com/rest/2.0/services/cloud_dl?method=add_task&app_id=" + APP_ID + "&ndus=" + ndus 
+                                + "&channel=dubox&web=1&clienttype=0";
                 
                 FormBody formBody = new FormBody.Builder()
-                        .add("save_path", "/")
+                        .add("save_path", "/") // Root folder
                         .add("source_url", url)
+                        .add("timeout", "2147483647") // Max timeout for the task
                         .build();
 
                 Request request = new Request.Builder()
@@ -164,6 +168,7 @@ public class MainActivity extends AppCompatActivity {
                         .addHeader("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36")
                         .addHeader("Referer", "https://www.terabox.com/main")
                         .addHeader("Origin", "https://www.terabox.com")
+                        .addHeader("X-Requested-With", "XMLHttpRequest")
                         .post(formBody)
                         .build();
 
