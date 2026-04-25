@@ -1,7 +1,6 @@
 package com.example.teraboxremote;
 
 import android.annotation.SuppressLint;
-import android.graphics.Bitmap;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
@@ -49,7 +48,9 @@ public class MainActivity extends AppCompatActivity {
     private List<TaskItem> taskList = new ArrayList<>();
 
     private String ndus = "";
+    private String allCookies = "";
     private final String APP_ID = "250528";
+    private final String USER_AGENT = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36";
     
     private final OkHttpClient client = new OkHttpClient.Builder()
             .connectTimeout(60, TimeUnit.SECONDS)
@@ -100,6 +101,7 @@ public class MainActivity extends AppCompatActivity {
         webSettings.setDisplayZoomControls(false);
         webSettings.setUseWideViewPort(true);
         webSettings.setLoadWithOverviewMode(true);
+        webSettings.setUserAgentString(USER_AGENT);
         webView.setFocusable(true);
         webView.setFocusableInTouchMode(true);
         
@@ -122,6 +124,7 @@ public class MainActivity extends AppCompatActivity {
     private void checkCookies(String url) {
         String cookies = CookieManager.getInstance().getCookie(url);
         if (cookies != null && cookies.contains("ndus=")) {
+            allCookies = cookies;
             String[] parts = cookies.split(";");
             for (String part : parts) {
                 if (part.trim().startsWith("ndus=")) {
@@ -148,32 +151,39 @@ public class MainActivity extends AppCompatActivity {
             return;
         }
 
-                executor.execute(() -> {
+        executor.execute(() -> {
             try {
                 mainHandler.post(() -> tvStatus.setText("Status: Adding task..."));
-                android.util.Log.d("TeraBox", "Adding task for URL: " + url);
-                // TeraBox/Baidu PCS API often requires additional parameters for remote upload to trigger correctly.
-                // We add 'channel=dubox', 'web=1', and 'clienttype=0' which are common in web requests.
-                String apiUrl = "https://www.terabox.com/rest/2.0/services/cloud_dl?method=add_task&app_id=250528" + "&ndus=" + ndus;
-	                
-	                FormBody formBody = new FormBody.Builder()
-	                        .add("save_path", "/")
-	                        .add("source_url", url)
-	                        .build();
+                
+                // TeraBox 2025 API parameters from TeraboxUploaderCLI
+                // method=add_task, app_id=250528, web=1, channel=dubox, clienttype=0
+                String apiUrl = "https://www.terabox.com/rest/2.0/services/cloud_dl?method=add_task"
+                        + "&app_id=" + APP_ID 
+                        + "&web=1" 
+                        + "&channel=dubox" 
+                        + "&clienttype=0"
+                        + "&jsToken="; // Note: jsToken might be required if errno -7 occurs
+
+                FormBody formBody = new FormBody.Builder()
+                        .add("save_path", "/")
+                        .add("source_url", url)
+                        .build();
 
                 Request request = new Request.Builder()
                         .url(apiUrl)
-                        .addHeader("Cookie", "ndus=" + ndus)
-                        .addHeader("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36")
+                        .addHeader("Cookie", allCookies)
+                        .addHeader("User-Agent", USER_AGENT)
                         .addHeader("Referer", "https://www.terabox.com/main")
                         .addHeader("Origin", "https://www.terabox.com")
-                        .addHeader("X-Requested-With", "XMLHttpRequest")
                         .post(formBody)
                         .build();
 
                 try (Response response = client.newCall(request).execute()) {
                     String responseData = response.body() != null ? response.body().string() : "No data";
-                    if (response.isSuccessful()) {
+                    JSONObject json = new JSONObject(responseData);
+                    int errno = json.optInt("errno", -1);
+
+                    if (errno == 0) {
                         mainHandler.post(() -> {
                             tvStatus.setText("Status: Task Added Successfully");
                             etLink.setText("");
@@ -181,8 +191,7 @@ public class MainActivity extends AppCompatActivity {
                         });
                     } else {
                         mainHandler.post(() -> {
-                            tvStatus.setText("Error: " + response.code() + " - " + responseData);
-                            android.util.Log.e("TeraBox", "Add task failed: " + responseData);
+                            tvStatus.setText("Error: " + errno + " - " + responseData);
                         });
                     }
                 }
@@ -196,10 +205,21 @@ public class MainActivity extends AppCompatActivity {
         if (ndus.isEmpty()) return;
         executor.execute(() -> {
             try {
-                String listUrl = "https://www.terabox.com/rest/2.0/services/cloud_dl?method=list_task&app_id=" + APP_ID + "&ndus=" + ndus + "&need_report=1";
+                // clienttype=5 is used in CLI for listing tasks in 2025
+                String listUrl = "https://www.terabox.com/rest/2.0/services/cloud_dl?method=list_task"
+                        + "&app_id=" + APP_ID 
+                        + "&web=1" 
+                        + "&channel=dubox" 
+                        + "&clienttype=5"
+                        + "&need_report=1"
+                        + "&num=100"
+                        + "&page=1";
+
                 Request request = new Request.Builder()
                         .url(listUrl)
-                        .addHeader("Cookie", "ndus=" + ndus)
+                        .addHeader("Cookie", allCookies)
+                        .addHeader("User-Agent", USER_AGENT)
+                        .addHeader("Referer", "https://www.terabox.com/main")
                         .get()
                         .build();
 
@@ -218,7 +238,14 @@ public class MainActivity extends AppCompatActivity {
                                 item.status = obj.optInt("status", -1);
                                 long finished = obj.optLong("finished_size", 0);
                                 long total = obj.optLong("file_size", 0);
-                                item.progress = (total > 0) ? (int) ((finished * 100) / total) : (item.status == 0 ? 100 : 0);
+                                // Better progress calculation
+                                if (total > 0) {
+                                    item.progress = (int) ((finished * 100) / total);
+                                } else if (item.status == 0) {
+                                    item.progress = 100;
+                                } else {
+                                    item.progress = 0;
+                                }
                                 newTasks.add(item);
                             }
                             mainHandler.post(() -> {
@@ -238,9 +265,11 @@ public class MainActivity extends AppCompatActivity {
     private void deleteTask(String taskId) {
         executor.execute(() -> {
             try {
-                // TeraBox API for cancel_task usually expects task_ids as a comma-separated string or JSON array in a POST request.
-                // Based on common PCS API patterns, we use POST with task_ids in the body.
-                String delUrl = "https://www.terabox.com/rest/2.0/services/cloud_dl?method=cancel_task&app_id=" + APP_ID + "&ndus=" + ndus;
+                String delUrl = "https://www.terabox.com/rest/2.0/services/cloud_dl?method=cancel_task"
+                        + "&app_id=" + APP_ID 
+                        + "&web=1" 
+                        + "&channel=dubox" 
+                        + "&clienttype=0";
                 
                 FormBody formBody = new FormBody.Builder()
                         .add("task_ids", taskId)
@@ -248,8 +277,8 @@ public class MainActivity extends AppCompatActivity {
 
                 Request request = new Request.Builder()
                         .url(delUrl)
-                        .addHeader("Cookie", "ndus=" + ndus)
-                        .addHeader("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36")
+                        .addHeader("Cookie", allCookies)
+                        .addHeader("User-Agent", USER_AGENT)
                         .addHeader("Referer", "https://www.terabox.com/main")
                         .post(formBody)
                         .build();
@@ -257,41 +286,13 @@ public class MainActivity extends AppCompatActivity {
                 try (Response response = client.newCall(request).execute()) {
                     if (response.isSuccessful()) {
                         mainHandler.post(() -> {
-                            Toast.makeText(MainActivity.this, "Task cancelled successfully", Toast.LENGTH_SHORT).show();
+                            Toast.makeText(MainActivity.this, "Task cancelled", Toast.LENGTH_SHORT).show();
                             fetchTaskList();
                         });
-                    } else {
-                        // If POST fails, try fallback with task_id as single parameter (some versions use task_id instead of task_ids)
-                        tryFallbackDelete(taskId);
                     }
                 }
             } catch (Exception e) {
                 mainHandler.post(() -> Toast.makeText(MainActivity.this, "Error: " + e.getMessage(), Toast.LENGTH_SHORT).show());
-            }
-        });
-    }
-
-    private void tryFallbackDelete(String taskId) {
-        executor.execute(() -> {
-            try {
-                String delUrl = "https://www.terabox.com/rest/2.0/services/cloud_dl?method=cancel_task&app_id=" + APP_ID + "&task_id=" + taskId + "&ndus=" + ndus;
-                Request request = new Request.Builder()
-                        .url(delUrl)
-                        .addHeader("Cookie", "ndus=" + ndus)
-                        .post(new FormBody.Builder().build())
-                        .build();
-                try (Response response = client.newCall(request).execute()) {
-                    mainHandler.post(() -> {
-                        if (response.isSuccessful()) {
-                            Toast.makeText(MainActivity.this, "Task cancelled (fallback)", Toast.LENGTH_SHORT).show();
-                            fetchTaskList();
-                        } else {
-                            Toast.makeText(MainActivity.this, "Delete failed: " + response.code(), Toast.LENGTH_SHORT).show();
-                        }
-                    });
-                }
-            } catch (Exception e) {
-                e.printStackTrace();
             }
         });
     }
@@ -326,10 +327,10 @@ public class MainActivity extends AppCompatActivity {
                 case 1: statusStr = "Downloading"; break;
                 case 2: statusStr = "Waiting"; break;
                 case 3: statusStr = "Failed"; break;
-                default: statusStr = "Unknown (" + item.status + ")";
+                default: statusStr = "Status: " + item.status;
             }
             
-            holder.tvStatus.setText("Status: " + statusStr + " (" + item.progress + "%)");
+            holder.tvStatus.setText(statusStr + " (" + item.progress + "%)");
             holder.btnDelete.setOnClickListener(v -> deleteTask(item.id));
         }
 
