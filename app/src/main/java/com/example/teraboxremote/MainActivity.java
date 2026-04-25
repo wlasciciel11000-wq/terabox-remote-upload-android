@@ -28,7 +28,6 @@ import org.json.JSONArray;
 import org.json.JSONObject;
 
 import java.util.ArrayList;
-import java.util.Iterator;
 import java.util.List;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
@@ -152,17 +151,11 @@ public class MainActivity extends AppCompatActivity {
         executor.execute(() -> {
             try {
                 mainHandler.post(() -> tvStatus.setText("Status: Adding task..."));
-                
-                // Używamy pełnego URL z parametrami sesji, co jest kluczowe dla uniknięcia 405/409
                 String apiUrl = "https://www.terabox.com/rest/2.0/services/cloud_dl?method=add_task&app_id=" + APP_ID + "&ndus=" + ndus;
-                
-                // Dodajemy unikalny znacznik czasu do nazwy pliku, aby uniknąć konfliktów 409
-                String timestamp = String.valueOf(System.currentTimeMillis());
                 
                 FormBody formBody = new FormBody.Builder()
                         .add("save_path", "/")
                         .add("source_url", url)
-                        .add("task_name", "upload_" + timestamp)
                         .build();
 
                 Request request = new Request.Builder()
@@ -171,31 +164,18 @@ public class MainActivity extends AppCompatActivity {
                         .addHeader("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36")
                         .addHeader("Referer", "https://www.terabox.com/main")
                         .addHeader("Origin", "https://www.terabox.com")
-                        .addHeader("X-Requested-With", "XMLHttpRequest")
                         .post(formBody)
                         .build();
 
                 try (Response response = client.newCall(request).execute()) {
-                    String responseData = response.body() != null ? response.body().string() : "";
-                    if (response.isSuccessful() && !responseData.isEmpty()) {
-                        JSONObject json = new JSONObject(responseData);
-                        if (json.has("task_id")) {
-                            mainHandler.post(() -> {
-                                tvStatus.setText("Status: Task Added Successfully");
-                                etLink.setText("");
-                                fetchTaskList();
-                            });
-                        } else {
-                            int errno = json.optInt("errno", -1);
-                            if (errno == 409) {
-                                mainHandler.post(() -> tvStatus.setText("Status: Conflict (409), task exists."));
-                                fetchTaskList();
-                            } else {
-                                mainHandler.post(() -> tvStatus.setText("Error " + errno + ": " + responseData));
-                            }
-                        }
+                    if (response.isSuccessful()) {
+                        mainHandler.post(() -> {
+                            tvStatus.setText("Status: Task Added Successfully");
+                            etLink.setText("");
+                            fetchTaskList();
+                        });
                     } else {
-                        mainHandler.post(() -> tvStatus.setText("Server error: " + response.code()));
+                        mainHandler.post(() -> tvStatus.setText("Error: " + response.code()));
                     }
                 }
             } catch (Exception e) {
@@ -212,7 +192,6 @@ public class MainActivity extends AppCompatActivity {
                 Request request = new Request.Builder()
                         .url(listUrl)
                         .addHeader("Cookie", "ndus=" + ndus)
-                        .addHeader("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36")
                         .get()
                         .build();
 
@@ -251,7 +230,7 @@ public class MainActivity extends AppCompatActivity {
     private void deleteTask(String taskId) {
         executor.execute(() -> {
             try {
-                // Używamy cancel_task z pełnymi parametrami sesji
+                // Używamy metody cancel_task z pełnymi parametrami sesji
                 String delUrl = "https://www.terabox.com/rest/2.0/services/cloud_dl?method=cancel_task&app_id=" + APP_ID + "&task_ids=" + taskId + "&ndus=" + ndus;
                 Request request = new Request.Builder()
                         .url(delUrl)
@@ -262,13 +241,15 @@ public class MainActivity extends AppCompatActivity {
                 try (Response response = client.newCall(request).execute()) {
                     if (response.isSuccessful()) {
                         mainHandler.post(() -> {
-                            Toast.makeText(MainActivity.this, "Task deleted", Toast.LENGTH_SHORT).show();
+                            Toast.makeText(MainActivity.this, "Task deleted from server", Toast.LENGTH_SHORT).show();
                             fetchTaskList();
                         });
+                    } else {
+                        mainHandler.post(() -> Toast.makeText(MainActivity.this, "Delete failed: " + response.code(), Toast.LENGTH_SHORT).show();
                     }
                 }
             } catch (Exception e) {
-                e.printStackTrace();
+                mainHandler.post(() -> Toast.makeText(MainActivity.this, "Error: " + e.getMessage(), Toast.LENGTH_SHORT).show());
             }
         });
     }
