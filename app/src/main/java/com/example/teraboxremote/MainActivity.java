@@ -178,14 +178,16 @@ public class MainActivity extends AppCompatActivity {
                     bdstoken = json.optString("bdstoken", "");
                     
                     mainHandler.post(() -> {
-                        if (!jsToken.isEmpty() && !bdstoken.isEmpty()) {
-                            tvStatus.setText("Status: Logged In (Tokens captured)");
+                        if (!jsToken.isEmpty()) {
+                            if (!bdstoken.isEmpty()) {
+                                tvStatus.setText("Status: Logged In (All tokens captured)");
+                            } else {
+                                tvStatus.setText("Status: Logged In (jsToken captured, bdstoken empty)");
+                            }
                             if (!ndus.isEmpty()) {
                                 webView.setVisibility(View.GONE);
                                 fetchTaskList();
                             }
-                        } else if (!jsToken.isEmpty()) {
-                            tvStatus.setText("Status: Captured jsToken, waiting for bdstoken...");
                         }
                     });
                 } catch (Exception e) {
@@ -228,7 +230,7 @@ public class MainActivity extends AppCompatActivity {
                         + "&channel=dubox" 
                         + "&clienttype=0"
                         + "&jsToken=" + jsToken
-                        + "&bdstoken=" + bdstoken
+                        + (bdstoken.isEmpty() ? "" : "&bdstoken=" + bdstoken)
                         + "&dp-logid=" + dpLogId;
 
                 FormBody formBody = new FormBody.Builder()
@@ -283,7 +285,7 @@ public class MainActivity extends AppCompatActivity {
                         + "&channel=dubox" 
                         + "&clienttype=0"
                         + "&jsToken=" + jsToken
-                        + "&bdstoken=" + bdstoken
+                        + (bdstoken.isEmpty() ? "" : "&bdstoken=" + bdstoken)
                         + "&dp-logid=" + dpLogId
                         + "&need_report=1"
                         + "&num=100"
@@ -346,7 +348,7 @@ public class MainActivity extends AppCompatActivity {
                         + "&channel=dubox" 
                         + "&clienttype=0"
                         + "&jsToken=" + jsToken
-                        + "&bdstoken=" + bdstoken
+                        + (bdstoken.isEmpty() ? "" : "&bdstoken=" + bdstoken)
                         + "&dp-logid=" + dpLogId;
                 
                 FormBody formBody = new FormBody.Builder()
