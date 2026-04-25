@@ -245,7 +245,7 @@ public class MainActivity extends AppCompatActivity {
                             fetchTaskList();
                         });
                     } else {
-                        mainHandler.post(() -> Toast.makeText(MainActivity.this, "Delete failed: " + response.code(), Toast.LENGTH_SHORT).show();
+                        mainHandler.post(() -> Toast.makeText(MainActivity.this, "Delete failed: " + response.code(), Toast.LENGTH_SHORT).show());
                     }
                 }
             } catch (Exception e) {
