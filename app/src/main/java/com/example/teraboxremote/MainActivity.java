@@ -179,6 +179,11 @@ public class MainActivity extends AppCompatActivity {
                             int errno = json.optInt("errno", -1);
                             mainHandler.post(() -> tvStatus.setText("Error adding task: " + errno));
                         }
+                    } else if (response.code() == 409) {
+                        // Błąd 409 oznacza, że zadanie prawdopodobnie już istnieje.
+                        // Spróbujemy pobrać listę zadań, aby znaleźć ID dla tego URL.
+                        mainHandler.post(() -> tvStatus.setText("Status: Task exists (409), searching..."));
+                        findExistingTaskAndPoll(url);
                     } else {
                         mainHandler.post(() -> tvStatus.setText("Server error (Add): " + response.code()));
                     }
@@ -186,6 +191,44 @@ public class MainActivity extends AppCompatActivity {
             } catch (Exception e) {
                 e.printStackTrace();
                 mainHandler.post(() -> tvStatus.setText("Exception (Add): " + e.getMessage()));
+            }
+        });
+    }
+
+    private void findExistingTaskAndPoll(String sourceUrl) {
+        executor.execute(() -> {
+            try {
+                String listUrl = "https://www.terabox.com/rest/2.0/services/cloud_dl?method=list_task&app_id=250528&ndus=" + ndus;
+                Request request = new Request.Builder()
+                        .url(listUrl)
+                        .addHeader("Cookie", "ndus=" + ndus)
+                        .get()
+                        .build();
+
+                try (Response response = client.newCall(request).execute()) {
+                    if (response.isSuccessful() && response.body() != null) {
+                        String responseData = response.body().string();
+                        JSONObject json = new JSONObject(responseData);
+                        if (json.has("task_info")) {
+                            JSONArray tasks = json.getJSONArray("task_info");
+                            for (int i = 0; i < tasks.length(); i++) {
+                                JSONObject task = tasks.getJSONObject(i);
+                                if (task.optString("source_url").equals(sourceUrl)) {
+                                    currentTaskId = task.getString("task_id");
+                                    isPaused = false;
+                                    mainHandler.post(() -> {
+                                        tvStatus.setText("Status: Found existing task (ID: " + currentTaskId + ")");
+                                        startPollingStatus();
+                                    });
+                                    return;
+                                }
+                            }
+                        }
+                    }
+                    mainHandler.post(() -> tvStatus.setText("Status: Task not found in list."));
+                }
+            } catch (Exception e) {
+                mainHandler.post(() -> tvStatus.setText("Error finding task: " + e.getMessage()));
             }
         });
     }
@@ -217,7 +260,6 @@ public class MainActivity extends AppCompatActivity {
                                     if (array.length() > 0) taskInfo = array.getJSONObject(0);
                                 } else if (info instanceof JSONObject) {
                                     JSONObject obj = (JSONObject) info;
-                                    // Jeśli to obiekt, bierzemy pierwszy klucz (zazwyczaj ID zadania)
                                     Iterator<String> keys = obj.keys();
                                     if (keys.hasNext()) taskInfo = obj.getJSONObject(keys.next());
                                 }
