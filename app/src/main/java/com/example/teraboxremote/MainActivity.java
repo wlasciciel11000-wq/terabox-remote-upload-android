@@ -48,6 +48,7 @@ public class MainActivity extends AppCompatActivity {
     private List<TaskItem> taskList = new ArrayList<>();
 
     private String ndus = "";
+    private String jsToken = "";
     private String allCookies = "";
     private final String APP_ID = "250528";
     private final String USER_AGENT = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36";
@@ -117,6 +118,7 @@ public class MainActivity extends AppCompatActivity {
             public void onPageFinished(WebView view, String url) {
                 super.onPageFinished(view, url);
                 checkCookies(url);
+                extractJsToken();
             }
         });
     }
@@ -130,14 +132,42 @@ public class MainActivity extends AppCompatActivity {
                 if (part.trim().startsWith("ndus=")) {
                     ndus = part.trim().substring(5);
                     mainHandler.post(() -> {
-                        tvStatus.setText("Status: Logged In");
-                        webView.setVisibility(View.GONE);
-                        fetchTaskList();
+                        tvStatus.setText("Status: Logged In (ndus captured)");
+                        if (!jsToken.isEmpty()) {
+                            webView.setVisibility(View.GONE);
+                            fetchTaskList();
+                        }
                     });
                     break;
                 }
             }
         }
+    }
+
+    private void extractJsToken() {
+        // JavaScript to find jsToken in the window object or script tags
+        String js = "javascript:(function() { " +
+                "if (window.jsToken) return window.jsToken; " +
+                "var scripts = document.getElementsByTagName('script'); " +
+                "for (var i = 0; i < scripts.length; i++) { " +
+                "  var match = scripts[i].innerHTML.match(/jsToken\\s*:\\s*\"([^\"]+)\"/); " +
+                "  if (match) return match[1]; " +
+                "} " +
+                "return ''; " +
+                "})()";
+        
+        webView.evaluateJavascript(js, value -> {
+            if (value != null && !value.equals("\"\"") && !value.equals("null")) {
+                jsToken = value.replace("\"", "");
+                mainHandler.post(() -> {
+                    tvStatus.setText("Status: Logged In (jsToken captured)");
+                    if (!ndus.isEmpty()) {
+                        webView.setVisibility(View.GONE);
+                        fetchTaskList();
+                    }
+                });
+            }
+        });
     }
 
     private void startRemoteUpload() {
@@ -155,15 +185,19 @@ public class MainActivity extends AppCompatActivity {
             try {
                 mainHandler.post(() -> tvStatus.setText("Status: Adding task..."));
                 
-                // TeraBox 2025 API parameters from TeraboxUploaderCLI
-                // method=add_task, app_id=250528, web=1, channel=dubox, clienttype=0
+                // TeraBox 2025 API parameters - matching CLI precisely
+                // Added t=current_time to avoid cache/replay issues
+                long timestamp = System.currentTimeMillis();
                 String apiUrl = "https://www.terabox.com/rest/2.0/services/cloud_dl?method=add_task"
                         + "&app_id=" + APP_ID 
                         + "&web=1" 
                         + "&channel=dubox" 
                         + "&clienttype=0"
-                        + "&jsToken="; // Note: jsToken might be required if errno -7 occurs
+                        + "&jsToken=" + jsToken
+                        + "&t=" + timestamp;
 
+                // Important: source_url must be the first parameter in some API versions
+                // We use FormBody to send parameters in the POST body as TeraBox expects
                 FormBody formBody = new FormBody.Builder()
                         .add("save_path", "/")
                         .add("source_url", url)
@@ -175,6 +209,7 @@ public class MainActivity extends AppCompatActivity {
                         .addHeader("User-Agent", USER_AGENT)
                         .addHeader("Referer", "https://www.terabox.com/main")
                         .addHeader("Origin", "https://www.terabox.com")
+                        .addHeader("X-Requested-With", "XMLHttpRequest")
                         .post(formBody)
                         .build();
 
@@ -190,8 +225,11 @@ public class MainActivity extends AppCompatActivity {
                             fetchTaskList();
                         });
                     } else {
+                        // Detailed error reporting for 36001
                         mainHandler.post(() -> {
-                            tvStatus.setText("Error: " + errno + " - " + responseData);
+                            String msg = json.optString("errmsg", "Unknown error");
+                            tvStatus.setText("Error " + errno + ": " + msg);
+                            android.util.Log.e("TeraBox", "API Error: " + responseData);
                         });
                     }
                 }
@@ -205,12 +243,12 @@ public class MainActivity extends AppCompatActivity {
         if (ndus.isEmpty()) return;
         executor.execute(() -> {
             try {
-                // clienttype=5 is used in CLI for listing tasks in 2025
                 String listUrl = "https://www.terabox.com/rest/2.0/services/cloud_dl?method=list_task"
                         + "&app_id=" + APP_ID 
                         + "&web=1" 
                         + "&channel=dubox" 
                         + "&clienttype=5"
+                        + "&jsToken=" + jsToken
                         + "&need_report=1"
                         + "&num=100"
                         + "&page=1";
@@ -238,7 +276,6 @@ public class MainActivity extends AppCompatActivity {
                                 item.status = obj.optInt("status", -1);
                                 long finished = obj.optLong("finished_size", 0);
                                 long total = obj.optLong("file_size", 0);
-                                // Better progress calculation
                                 if (total > 0) {
                                     item.progress = (int) ((finished * 100) / total);
                                 } else if (item.status == 0) {
@@ -269,7 +306,8 @@ public class MainActivity extends AppCompatActivity {
                         + "&app_id=" + APP_ID 
                         + "&web=1" 
                         + "&channel=dubox" 
-                        + "&clienttype=0";
+                        + "&clienttype=0"
+                        + "&jsToken=" + jsToken;
                 
                 FormBody formBody = new FormBody.Builder()
                         .add("task_ids", taskId)
