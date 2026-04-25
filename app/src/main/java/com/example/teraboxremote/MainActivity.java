@@ -158,9 +158,9 @@ public class MainActivity extends AppCompatActivity {
                 
                 FormBody formBody = new FormBody.Builder()
                         .add("save_path", "/") // Root folder
-                        .add("path", "/") // Alternative path parameter for some API versions
                         .add("source_url", url)
-                        .add("timeout", "2147483647") // Max timeout for the task
+                        .add("type", "3") // Type 3 is often required for remote link uploads
+                        .add("timeout", "2147483647")
                         .build();
 
                 Request request = new Request.Builder()
