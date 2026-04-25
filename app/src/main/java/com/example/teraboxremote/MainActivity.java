@@ -203,7 +203,7 @@ public class MainActivity extends AppCompatActivity {
                         + "&app_id=" + APP_ID 
                         + "&web=1" 
                         + "&channel=dubox" 
-                        + "&clienttype=5"
+                        + "&clienttype=0"
                         + "&jsToken=" + jsToken
                         + "&dp-logid=" + dpLogId;
 
@@ -220,7 +220,7 @@ public class MainActivity extends AppCompatActivity {
                         .addHeader("User-Agent", USER_AGENT)
                         .addHeader("Referer", "https://www.1024terabox.com/main")
                         .addHeader("Origin", "https://www.1024terabox.com")
-                        .addHeader("Content-Type", "application/x-www-form-urlencoded")
+                        .addHeader("X-Requested-With", "XMLHttpRequest")
                         .post(formBody)
                         .build();
 
@@ -259,7 +259,7 @@ public class MainActivity extends AppCompatActivity {
                         + "&app_id=" + APP_ID 
                         + "&web=1" 
                         + "&channel=dubox" 
-                        + "&clienttype=5"
+                        + "&clienttype=0"
                         + "&jsToken=" + jsToken
                         + "&dp-logid=" + dpLogId
                         + "&need_report=1"
@@ -320,7 +320,7 @@ public class MainActivity extends AppCompatActivity {
                         + "&app_id=" + APP_ID 
                         + "&web=1" 
                         + "&channel=dubox" 
-                        + "&clienttype=5"
+                        + "&clienttype=0"
                         + "&jsToken=" + jsToken
                         + "&dp-logid=" + dpLogId;
                 
