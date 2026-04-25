@@ -5,8 +5,10 @@ import android.graphics.Bitmap;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
+import android.view.LayoutInflater;
 import android.view.MotionEvent;
 import android.view.View;
+import android.view.ViewGroup;
 import android.webkit.CookieManager;
 import android.webkit.WebSettings;
 import android.webkit.WebView;
@@ -17,12 +19,17 @@ import android.widget.ProgressBar;
 import android.widget.TextView;
 import android.widget.Toast;
 
+import androidx.annotation.NonNull;
 import androidx.appcompat.app.AppCompatActivity;
+import androidx.recyclerview.widget.LinearLayoutManager;
+import androidx.recyclerview.widget.RecyclerView;
 
 import org.json.JSONArray;
 import org.json.JSONObject;
 
+import java.util.ArrayList;
 import java.util.Iterator;
+import java.util.List;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
@@ -35,15 +42,14 @@ import okhttp3.Response;
 public class MainActivity extends AppCompatActivity {
 
     private WebView webView;
-    private Button btnLogin, btnStart, btnPause, btnResume;
+    private Button btnLogin, btnStart, btnRefresh;
     private EditText etLink;
-    private ProgressBar pbProgress;
-    private TextView tvStatus, tvProgressStatus;
+    private TextView tvStatus;
+    private RecyclerView rvTasks;
+    private TaskAdapter taskAdapter;
+    private List<TaskItem> taskList = new ArrayList<>();
 
     private String ndus = "";
-    private String currentTaskId = "";
-    private boolean isPaused = false;
-    
     private final OkHttpClient client = new OkHttpClient.Builder()
             .connectTimeout(60, TimeUnit.SECONDS)
             .readTimeout(60, TimeUnit.SECONDS)
@@ -51,7 +57,7 @@ public class MainActivity extends AppCompatActivity {
             .retryOnConnectionFailure(true)
             .build();
             
-    private final ExecutorService executor = Executors.newSingleThreadExecutor();
+    private final ExecutorService executor = Executors.newFixedThreadPool(4);
     private final Handler mainHandler = new Handler(Looper.getMainLooper());
 
     @SuppressLint({"SetJavaScriptEnabled", "ClickableViewAccessibility"})
@@ -63,23 +69,34 @@ public class MainActivity extends AppCompatActivity {
         webView = findViewById(R.id.webview_login);
         btnLogin = findViewById(R.id.btn_login);
         btnStart = findViewById(R.id.btn_start);
-        btnPause = findViewById(R.id.btn_pause);
-        btnResume = findViewById(R.id.btn_resume);
+        btnRefresh = findViewById(R.id.btn_refresh);
         etLink = findViewById(R.id.et_link);
-        pbProgress = findViewById(R.id.pb_progress);
         tvStatus = findViewById(R.id.tv_status);
-        tvProgressStatus = findViewById(R.id.tv_progress_status);
+        rvTasks = findViewById(R.id.rv_tasks);
 
+        rvTasks.setLayoutManager(new LinearLayoutManager(this));
+        taskAdapter = new TaskAdapter(taskList);
+        rvTasks.setAdapter(taskAdapter);
+
+        setupWebView();
+
+        btnLogin.setOnClickListener(v -> {
+            webView.setVisibility(View.VISIBLE);
+            webView.loadUrl("https://www.terabox.com/main");
+        });
+
+        btnStart.setOnClickListener(v -> startRemoteUpload());
+        btnRefresh.setOnClickListener(v -> fetchTaskList());
+    }
+
+    @SuppressLint({"SetJavaScriptEnabled", "ClickableViewAccessibility"})
+    private void setupWebView() {
         WebSettings webSettings = webView.getSettings();
         webSettings.setJavaScriptEnabled(true);
         webSettings.setDomStorageEnabled(true);
-        webSettings.setAllowFileAccessFromFileURLs(true);
-        webSettings.setAllowUniversalAccessFromFileURLs(true);
-        
         webSettings.setSupportZoom(true);
         webSettings.setBuiltInZoomControls(true);
         webSettings.setDisplayZoomControls(false);
-        
         webSettings.setUseWideViewPort(true);
         webSettings.setLoadWithOverviewMode(true);
         webView.setFocusable(true);
@@ -94,26 +111,11 @@ public class MainActivity extends AppCompatActivity {
 
         webView.setWebViewClient(new WebViewClient() {
             @Override
-            public void onPageStarted(WebView view, String url, Bitmap favicon) {
-                super.onPageStarted(view, url, favicon);
-                checkCookies(url);
-            }
-
-            @Override
             public void onPageFinished(WebView view, String url) {
                 super.onPageFinished(view, url);
                 checkCookies(url);
             }
         });
-
-        btnLogin.setOnClickListener(v -> {
-            webView.setVisibility(View.VISIBLE);
-            webView.loadUrl("https://www.terabox.com/main");
-        });
-
-        btnStart.setOnClickListener(v -> startRemoteUpload());
-        btnPause.setOnClickListener(v -> pauseTask());
-        btnResume.setOnClickListener(v -> resumeTask());
     }
 
     private void checkCookies(String url) {
@@ -124,8 +126,9 @@ public class MainActivity extends AppCompatActivity {
                 if (part.trim().startsWith("ndus=")) {
                     ndus = part.trim().substring(5);
                     mainHandler.post(() -> {
-                        tvStatus.setText("Status: Logged In (ndus found)");
+                        tvStatus.setText("Status: Logged In");
                         webView.setVisibility(View.GONE);
+                        fetchTaskList();
                     });
                     break;
                 }
@@ -147,6 +150,7 @@ public class MainActivity extends AppCompatActivity {
         executor.execute(() -> {
             try {
                 mainHandler.post(() -> tvStatus.setText("Status: Adding task..."));
+                // Używamy endpointu, który zazwyczaj działa lepiej dla remote upload
                 String apiUrl = "https://www.terabox.com/rest/2.0/services/cloud_dl?method=add_task&app_id=250528";
                 
                 FormBody formBody = new FormBody.Builder()
@@ -163,39 +167,24 @@ public class MainActivity extends AppCompatActivity {
                         .build();
 
                 try (Response response = client.newCall(request).execute()) {
-                    String responseData = response.body() != null ? response.body().string() : "";
-                    if (response.isSuccessful() && !responseData.isEmpty()) {
-                        JSONObject json = new JSONObject(responseData);
-                        if (json.has("task_id")) {
-                            currentTaskId = json.getString("task_id");
-                            isPaused = false;
-                            mainHandler.post(() -> {
-                                tvStatus.setText("Status: Task Added (ID: " + currentTaskId + ")");
-                                pbProgress.setProgress(0);
-                                tvProgressStatus.setText("Progress: 0%");
-                            });
-                            startPollingStatus();
-                        } else {
-                            int errno = json.optInt("errno", -1);
-                            mainHandler.post(() -> tvStatus.setText("Error adding task: " + errno));
-                        }
-                    } else if (response.code() == 409) {
-                        // Błąd 409 oznacza, że zadanie prawdopodobnie już istnieje.
-                        // Spróbujemy pobrać listę zadań, aby znaleźć ID dla tego URL.
-                        mainHandler.post(() -> tvStatus.setText("Status: Task exists (409), searching..."));
-                        findExistingTaskAndPoll(url);
+                    if (response.isSuccessful()) {
+                        mainHandler.post(() -> {
+                            tvStatus.setText("Status: Task Added Successfully");
+                            etLink.setText("");
+                            fetchTaskList();
+                        });
                     } else {
-                        mainHandler.post(() -> tvStatus.setText("Server error (Add): " + response.code()));
+                        mainHandler.post(() -> tvStatus.setText("Error: " + response.code()));
                     }
                 }
             } catch (Exception e) {
-                e.printStackTrace();
-                mainHandler.post(() -> tvStatus.setText("Exception (Add): " + e.getMessage()));
+                mainHandler.post(() -> tvStatus.setText("Exception: " + e.getMessage()));
             }
         });
     }
 
-    private void findExistingTaskAndPoll(String sourceUrl) {
+    private void fetchTaskList() {
+        if (ndus.isEmpty()) return;
         executor.execute(() -> {
             try {
                 String listUrl = "https://www.terabox.com/rest/2.0/services/cloud_dl?method=list_task&app_id=250528&ndus=" + ndus;
@@ -207,117 +196,101 @@ public class MainActivity extends AppCompatActivity {
 
                 try (Response response = client.newCall(request).execute()) {
                     if (response.isSuccessful() && response.body() != null) {
-                        String responseData = response.body().string();
-                        JSONObject json = new JSONObject(responseData);
+                        String data = response.body().string();
+                        JSONObject json = new JSONObject(data);
                         if (json.has("task_info")) {
-                            JSONArray tasks = json.getJSONArray("task_info");
-                            for (int i = 0; i < tasks.length(); i++) {
-                                JSONObject task = tasks.getJSONObject(i);
-                                if (task.optString("source_url").equals(sourceUrl)) {
-                                    currentTaskId = task.getString("task_id");
-                                    isPaused = false;
-                                    mainHandler.post(() -> {
-                                        tvStatus.setText("Status: Found existing task (ID: " + currentTaskId + ")");
-                                        startPollingStatus();
-                                    });
-                                    return;
-                                }
+                            JSONArray array = json.getJSONArray("task_info");
+                            List<TaskItem> newTasks = new ArrayList<>();
+                            for (int i = 0; i < array.length(); i++) {
+                                JSONObject obj = array.getJSONObject(i);
+                                TaskItem item = new TaskItem();
+                                item.id = obj.getString("task_id");
+                                item.name = obj.optString("task_name", "Unknown");
+                                item.status = obj.optInt("status", -1);
+                                long finished = obj.optLong("finished_size", 0);
+                                long total = obj.optLong("file_size", 0);
+                                item.progress = (total > 0) ? (int) ((finished * 100) / total) : (item.status == 0 ? 100 : 0);
+                                newTasks.add(item);
                             }
+                            mainHandler.post(() -> {
+                                taskList.clear();
+                                taskList.addAll(newTasks);
+                                taskAdapter.notifyDataSetChanged();
+                            });
                         }
                     }
-                    mainHandler.post(() -> tvStatus.setText("Status: Task not found in list."));
                 }
             } catch (Exception e) {
-                mainHandler.post(() -> tvStatus.setText("Error finding task: " + e.getMessage()));
+                e.printStackTrace();
             }
         });
     }
 
-    private void startPollingStatus() {
+    private void deleteTask(String taskId) {
         executor.execute(() -> {
-            int retryCount = 0;
-            while (!currentTaskId.isEmpty() && !isPaused) {
-                try {
-                    String statusUrl = "https://www.terabox.com/rest/2.0/services/cloud_dl?method=query_task&app_id=250528&task_ids=" + currentTaskId + "&ndus=" + ndus;
-                    Request request = new Request.Builder()
-                            .url(statusUrl)
-                            .addHeader("Cookie", "ndus=" + ndus)
-                            .addHeader("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36")
-                            .get()
-                            .build();
-
-                    try (Response response = client.newCall(request).execute()) {
-                        if (response.isSuccessful() && response.body() != null) {
-                            retryCount = 0;
-                            String responseData = response.body().string();
-                            JSONObject json = new JSONObject(responseData);
-                            
-                            JSONObject taskInfo = null;
-                            if (json.has("task_info")) {
-                                Object info = json.get("task_info");
-                                if (info instanceof JSONArray) {
-                                    JSONArray array = (JSONArray) info;
-                                    if (array.length() > 0) taskInfo = array.getJSONObject(0);
-                                } else if (info instanceof JSONObject) {
-                                    JSONObject obj = (JSONObject) info;
-                                    Iterator<String> keys = obj.keys();
-                                    if (keys.hasNext()) taskInfo = obj.getJSONObject(keys.next());
-                                }
-                            }
-
-                            if (taskInfo != null) {
-                                final JSONObject task = taskInfo;
-                                int status = task.getInt("status");
-                                long finished = task.optLong("finished_size", 0);
-                                long total = task.optLong("file_size", 0);
-                                
-                                final int progress = (total > 0) ? (int) ((finished * 100) / total) : (status == 0 ? 100 : 0);
-
-                                mainHandler.post(() -> {
-                                    pbProgress.setProgress(progress);
-                                    tvProgressStatus.setText("Progress: " + progress + "% (" + (finished/1024) + "KB / " + (total/1024) + "KB)");
-                                    
-                                    switch (status) {
-                                        case 0: tvStatus.setText("Status: Completed Successfully"); currentTaskId = ""; break;
-                                        case 1: tvStatus.setText("Status: Downloading..."); break;
-                                        case 2: tvStatus.setText("Status: Waiting in queue..."); break;
-                                        case 3: tvStatus.setText("Status: Failed (Server side)"); currentTaskId = ""; break;
-                                        default: tvStatus.setText("Status: Unknown (" + status + ")"); break;
-                                    }
-                                });
-                            } else {
-                                int errno = json.optInt("errno", -1);
-                                mainHandler.post(() -> tvStatus.setText("Status Error: " + errno));
-                            }
-                        } else {
-                            mainHandler.post(() -> tvStatus.setText("Server error (Status): " + response.code()));
-                        }
+            try {
+                String delUrl = "https://www.terabox.com/rest/2.0/services/cloud_dl?method=cancel_task&app_id=250528&task_ids=" + taskId;
+                Request request = new Request.Builder()
+                        .url(delUrl)
+                        .addHeader("Cookie", "ndus=" + ndus)
+                        .get()
+                        .build();
+                try (Response response = client.newCall(request).execute()) {
+                    if (response.isSuccessful()) {
+                        mainHandler.post(this::fetchTaskList);
                     }
-                    Thread.sleep(5000);
-                } catch (Exception e) {
-                    retryCount++;
-                    final int currentRetry = retryCount;
-                    mainHandler.post(() -> tvStatus.setText("Network issue, retrying (" + currentRetry + ")..."));
-                    if (retryCount > 5) {
-                        mainHandler.post(() -> tvStatus.setText("Status Error: " + e.getMessage()));
-                        break;
-                    }
-                    try { Thread.sleep(5000); } catch (InterruptedException ignored) {}
                 }
+            } catch (Exception e) {
+                e.printStackTrace();
             }
         });
     }
 
-    private void pauseTask() {
-        isPaused = true;
-        tvStatus.setText("Status: Paused by user");
+    // Task Item Model
+    static class TaskItem {
+        String id;
+        String name;
+        int status;
+        int progress;
     }
 
-    private void resumeTask() {
-        if (isPaused && !currentTaskId.isEmpty()) {
-            isPaused = false;
-            tvStatus.setText("Status: Resuming...");
-            startPollingStatus();
+    // Adapter for RecyclerView
+    class TaskAdapter extends RecyclerView.Adapter<TaskAdapter.ViewHolder> {
+        private List<TaskItem> items;
+
+        TaskAdapter(List<TaskItem> items) { this.items = items; }
+
+        @NonNull
+        @Override
+        public ViewHolder onCreateViewHolder(@NonNull ViewGroup parent, int viewType) {
+            View v = LayoutInflater.from(parent.getContext()).inflate(R.layout.item_task, parent, false);
+            return new ViewHolder(v);
+        }
+
+        @Override
+        public void onBindViewHolder(@NonNull ViewHolder holder, int position) {
+            TaskItem item = items.get(position);
+            holder.tvName.setText(item.name);
+            holder.pbProgress.setProgress(item.progress);
+            String statusText = "Status: " + (item.status == 0 ? "Completed" : (item.status == 1 ? "Downloading" : "Waiting"));
+            holder.tvStatus.setText(statusText + " (" + item.progress + "%)");
+            holder.btnDelete.setOnClickListener(v -> deleteTask(item.id));
+        }
+
+        @Override
+        public int getItemCount() { return items.size(); }
+
+        class ViewHolder extends RecyclerView.ViewHolder {
+            TextView tvName, tvStatus;
+            ProgressBar pbProgress;
+            Button btnDelete;
+            ViewHolder(View v) {
+                super(v);
+                tvName = v.findViewById(R.id.tv_task_name);
+                tvStatus = v.findViewById(R.id.tv_task_status);
+                pbProgress = v.findViewById(R.id.pb_task_progress);
+                btnDelete = v.findViewById(R.id.btn_delete_task);
+            }
         }
     }
 }
