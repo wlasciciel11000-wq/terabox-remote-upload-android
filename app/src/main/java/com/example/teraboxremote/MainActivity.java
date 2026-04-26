@@ -90,7 +90,7 @@ public class MainActivity extends AppCompatActivity {
 
         btnLogin.setOnClickListener(v -> {
             webView.setVisibility(View.VISIBLE);
-            webView.loadUrl("https://www.1024terabox.com/main");
+            webView.loadUrl("https://1024terabox.com/main");
         });
 
         btnStart.setOnClickListener(v -> startRemoteUpload());
@@ -148,7 +148,7 @@ public class MainActivity extends AppCompatActivity {
         executor.execute(() -> {
             try {
                 Request request = new Request.Builder()
-                        .url("https://www.1024terabox.com/main")
+                        .url("https://1024terabox.com/main")
                         .addHeader("Cookie", allCookies)
                         .addHeader("User-Agent", USER_AGENT)
                         .get()
@@ -268,7 +268,7 @@ public class MainActivity extends AppCompatActivity {
                 String dpLogId = generateDpLogId();
                 
                 // KROK 1: Precreate
-                String precreateUrl = "https://www.1024terabox.com/api/precreate?app_id=" + APP_ID 
+                String precreateUrl = "https://1024terabox.com/api/precreate?app_id=" + APP_ID 
                         + "&web=1&channel=dubox&clienttype=0"
                         + "&jsToken=" + jsToken
                         + "&dp-logid=" + dpLogId;
@@ -280,6 +280,7 @@ public class MainActivity extends AppCompatActivity {
                     if (!lastPart.isEmpty()) fileName = lastPart;
                 }
 
+                long currentTime = System.currentTimeMillis() / 1000;
                 FormBody precreateBody = new FormBody.Builder()
                         .add("path", "/" + fileName)
                         .add("target_path", "/")
@@ -287,13 +288,14 @@ public class MainActivity extends AppCompatActivity {
                         .add("isdir", "0")
                         .add("autoinit", "1")
                         .add("block_list", "[\"d41d8cd98f00b204e9800998ecf8427e\"]")
+                        .add("local_mtime", String.valueOf(currentTime))
                         .build();
 
                 Request precreateRequest = new Request.Builder()
                         .url(precreateUrl)
                         .addHeader("Cookie", allCookies)
                         .addHeader("User-Agent", USER_AGENT)
-                        .addHeader("Referer", "https://www.1024terabox.com/main")
+                        .addHeader("Referer", "https://1024terabox.com/main")
                         .post(precreateBody)
                         .build();
 
@@ -360,11 +362,12 @@ public class MainActivity extends AppCompatActivity {
         executor.execute(() -> {
             try {
                 String dpLogId = generateDpLogId();
-                String createUrl = "https://www.1024terabox.com/api/create?app_id=" + APP_ID 
+                String createUrl = "https://1024terabox.com/api/create?app_id=" + APP_ID 
                         + "&web=1&channel=dubox&clienttype=0"
                         + "&jsToken=" + jsToken
                         + "&dp-logid=" + dpLogId;
 
+                long currentTime = System.currentTimeMillis() / 1000;
                 FormBody createBody = new FormBody.Builder()
                         .add("path", "/" + fileName)
                         .add("target_path", "/")
@@ -373,14 +376,15 @@ public class MainActivity extends AppCompatActivity {
                         .add("uploadid", uploadId)
                         .add("block_list", "[\"d41d8cd98f00b204e9800998ecf8427e\"]")
                         .add("rtype", "1")
+                        .add("local_mtime", String.valueOf(currentTime))
                         .build();
 
                 Request request = new Request.Builder()
                         .url(createUrl)
                         .addHeader("Cookie", allCookies)
                         .addHeader("User-Agent", USER_AGENT)
-                        .addHeader("Referer", "https://www.1024terabox.com/main")
-                        .addHeader("Origin", "https://www.1024terabox.com")
+                        .addHeader("Referer", "https://1024terabox.com/main")
+                        .addHeader("Origin", "https://1024terabox.com")
                         .addHeader("X-Requested-With", "XMLHttpRequest")
                         .post(createBody)
                         .build();
@@ -409,7 +413,7 @@ public class MainActivity extends AppCompatActivity {
         executor.execute(() -> {
             try {
                 String dpLogId = generateDpLogId();
-                String listUrl = "https://www.1024terabox.com/api/list?app_id=" + APP_ID 
+                String listUrl = "https://1024terabox.com/api/list?app_id=" + APP_ID 
                         + "&web=1&channel=dubox&clienttype=0"
                         + "&jsToken=" + jsToken
                         + "&dp-logid=" + dpLogId
@@ -419,7 +423,7 @@ public class MainActivity extends AppCompatActivity {
                         .url(listUrl)
                         .addHeader("Cookie", allCookies)
                         .addHeader("User-Agent", USER_AGENT)
-                        .addHeader("Referer", "https://www.1024terabox.com/main")
+                        .addHeader("Referer", "https://1024terabox.com/main")
                         .get()
                         .build();
 
@@ -455,7 +459,7 @@ public class MainActivity extends AppCompatActivity {
         executor.execute(() -> {
             try {
                 String dpLogId = generateDpLogId();
-                String delUrl = "https://www.1024terabox.com/api/filemanager?opera=delete"
+                String delUrl = "https://1024terabox.com/api/filemanager?opera=delete"
                         + "&app_id=" + APP_ID 
                         + "&jsToken=" + jsToken
                         + "&dp-logid=" + dpLogId;
@@ -469,7 +473,7 @@ public class MainActivity extends AppCompatActivity {
                         .url(delUrl)
                         .addHeader("Cookie", allCookies)
                         .addHeader("User-Agent", USER_AGENT)
-                        .addHeader("Referer", "https://www.1024terabox.com/main")
+                        .addHeader("Referer", "https://1024terabox.com/main")
                         .post(formBody)
                         .build();
 
