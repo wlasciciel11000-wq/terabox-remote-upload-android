@@ -139,7 +139,6 @@ public class MainActivity extends AppCompatActivity {
                     mainHandler.post(() -> {
                         tvStatus.setText("Status: Logged In (ndus captured)");
                     });
-                    // Fetch bdstoken from HTML in background
                     fetchBdstokenFromHtml();
                     break;
                 }
@@ -160,8 +159,6 @@ public class MainActivity extends AppCompatActivity {
                 try (Response response = client.newCall(request).execute()) {
                     if (response.isSuccessful() && response.body() != null) {
                         String html = response.body().string();
-                        
-                        // Extract bdstoken from HTML
                         String extractedBdstoken = extractTokenFromHtml(html, "bdstoken");
                         if (!extractedBdstoken.isEmpty()) {
                             bdstoken = extractedBdstoken;
@@ -171,7 +168,7 @@ public class MainActivity extends AppCompatActivity {
                             if (!bdstoken.isEmpty()) {
                                 tvStatus.setText("Status: All tokens captured!");
                             } else {
-                                tvStatus.setText("Status: Ready (bdstoken not found, using jsToken only)");
+                                tvStatus.setText("Status: Ready (bdstoken not found)");
                             }
                             if (!ndus.isEmpty() && !jsToken.isEmpty()) {
                                 webView.setVisibility(View.GONE);
@@ -187,7 +184,6 @@ public class MainActivity extends AppCompatActivity {
     }
 
     private String extractTokenFromHtml(String html, String tokenName) {
-        // Try multiple extraction patterns for bdstoken
         String[] patterns = {
                 "\"" + tokenName + "\"\\s*:\\s*\"([^\"]+)\"",
                 tokenName + "\\s*=\\s*\"([^\"]+)\"",
@@ -206,15 +202,12 @@ public class MainActivity extends AppCompatActivity {
                         return result;
                     }
                 }
-            } catch (Exception e) {
-                // Continue to next pattern
-            }
+            } catch (Exception e) { }
         }
         return "";
     }
 
     private void extractTokens() {
-        // JavaScript to find jsToken in the window object or script tags
         String js = "javascript:(function() { " +
                 "var result = {jsToken: ''}; " +
                 "try { " +
@@ -244,52 +237,40 @@ public class MainActivity extends AppCompatActivity {
                     if (!capturedJsToken.isEmpty()) {
                         jsToken = capturedJsToken;
                         mainHandler.post(() -> {
-                            tvStatus.setText("Status: jsToken captured, fetching bdstoken...");
+                            tvStatus.setText("Status: jsToken captured...");
                             if (!ndus.isEmpty() && !bdstoken.isEmpty()) {
                                 webView.setVisibility(View.GONE);
                                 fetchTaskList();
                             }
                         });
                     }
-                } catch (Exception e) {
-                    e.printStackTrace();
-                }
+                } catch (Exception e) { }
             }
         });
     }
 
     private String generateDpLogId() {
-        // Generate a random hex string similar to TeraboxUploaderCLI
         StringBuilder sb = new StringBuilder();
         for (int i = 0; i < 10; i++) {
             sb.append(String.format("%02x", random.nextInt(256)));
         }
-        return sb.toString().toUpperCase();
+        return sb.toString();
     }
 
     private void startRemoteUpload() {
         String url = etLink.getText().toString().trim();
-        if (ndus.isEmpty()) {
-            Toast.makeText(this, "Please login first", Toast.LENGTH_SHORT).show();
+        if (ndus.isEmpty() || jsToken.isEmpty() || bdstoken.isEmpty()) {
+            Toast.makeText(this, "Please login and wait for tokens", Toast.LENGTH_SHORT).show();
             return;
         }
         if (url.isEmpty()) {
             Toast.makeText(this, "Please paste a link", Toast.LENGTH_SHORT).show();
             return;
         }
-        if (jsToken.isEmpty()) {
-            Toast.makeText(this, "jsToken not captured, please login again", Toast.LENGTH_SHORT).show();
-            return;
-        }
-        if (bdstoken.isEmpty()) {
-            Toast.makeText(this, "bdstoken not found, cannot proceed", Toast.LENGTH_SHORT).show();
-            return;
-        }
 
         executor.execute(() -> {
             try {
                 mainHandler.post(() -> tvStatus.setText("Status: Adding task..."));
-                
                 String dpLogId = generateDpLogId();
                 String apiUrl = "https://www.terabox.com/rest/2.0/services/cloud_dl?method=add_task"
                         + "&app_id=" + APP_ID 
@@ -330,7 +311,6 @@ public class MainActivity extends AppCompatActivity {
                         mainHandler.post(() -> {
                             String msg = json.optString("errmsg", "Unknown error");
                             tvStatus.setText("Error " + errno + ": " + msg);
-                            android.util.Log.e("TeraBox", "API Error: " + responseData);
                         });
                     }
                 }
@@ -398,9 +378,7 @@ public class MainActivity extends AppCompatActivity {
                         }
                     }
                 }
-            } catch (Exception e) {
-                e.printStackTrace();
-            }
+            } catch (Exception e) { }
         });
     }
 
@@ -417,8 +395,10 @@ public class MainActivity extends AppCompatActivity {
                         + "&bdstoken=" + bdstoken
                         + "&dp-logid=" + dpLogId;
                 
+                // Serwer wymaga task_ids jako tablicy JSON w ciele POST
+                String taskIdsJson = "[\"" + taskId + "\"]";
                 FormBody formBody = new FormBody.Builder()
-                        .add("task_ids", taskId)
+                        .add("task_ids", taskIdsJson)
                         .build();
 
                 Request request = new Request.Builder()
@@ -436,6 +416,8 @@ public class MainActivity extends AppCompatActivity {
                             Toast.makeText(MainActivity.this, "Task cancelled", Toast.LENGTH_SHORT).show();
                             fetchTaskList();
                         });
+                    } else {
+                        mainHandler.post(() -> Toast.makeText(MainActivity.this, "Delete failed: " + response.code(), Toast.LENGTH_SHORT).show());
                     }
                 }
             } catch (Exception e) {
