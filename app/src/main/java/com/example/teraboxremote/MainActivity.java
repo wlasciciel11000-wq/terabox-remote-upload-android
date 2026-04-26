@@ -254,7 +254,16 @@ public class MainActivity extends AppCompatActivity {
 
         executor.execute(() -> {
             try {
-                mainHandler.post(() -> tvStatus.setText("Status: Adding task..."));
+                mainHandler.post(() -> tvStatus.setText("Status: Getting file size..."));
+                
+                // KROK 0: Pobranie rozmiaru pliku (kluczowe dla uniknięcia 0B)
+                long fileSize = getRemoteFileSize(url);
+                if (fileSize <= 0) {
+                    // Jeśli nie udało się pobrać rozmiaru, spróbujemy z domyślną wartością
+                    fileSize = 1024 * 1024; // 1MB dummy
+                }
+
+                mainHandler.post(() -> tvStatus.setText("Status: Adding task (Size: " + (fileSize/1024) + " KB)..."));
                 String dpLogId = generateDpLogId();
                 
                 // KROK 1: Precreate
@@ -270,16 +279,12 @@ public class MainActivity extends AppCompatActivity {
                     if (!lastPart.isEmpty()) fileName = lastPart;
                 }
 
-                // FIX: Zgodnie z analizą API, dla Remote Upload (source_url) parametr size 
-                // w metodzie precreate powinien być pominięty lub ustawiony na konkretną wartość, 
-                // która nie jest 0. Jednak kluczowe jest, aby w przypadku linków zewnętrznych 
-                // serwer sam wynegocjował rozmiar. 
-                // Próbujemy wysłać precreate BEZ parametru size, ale z block_list.
                 FormBody precreateBody = new FormBody.Builder()
                         .add("path", "/" + fileName)
                         .add("autoinit", "1")
                         .add("target_path", "/")
                         .add("source_url", url)
+                        .add("size", String.valueOf(fileSize))
                         .add("block_list", "[\"d41d8cd98f00b204e9800998ecf8427e\"]")
                         .build();
 
@@ -297,10 +302,9 @@ public class MainActivity extends AppCompatActivity {
                     int errno = json.optInt("errno", -1);
 
                     if (errno == 0) {
-                        finalizeUpload(fileName, json.optString("uploadid", ""), url);
+                        finalizeUpload(fileName, json.optString("uploadid", ""), url, fileSize);
                     } else {
-                        // Jeśli precreate bez size zawiedzie, spróbujmy z bardzo dużą wartością jako fallback
-                        retryPrecreateWithLargeSize(url, fileName, dpLogId);
+                        mainHandler.post(() -> tvStatus.setText("Error: " + json.optString("errmsg", "Unknown")));
                     }
                 }
             } catch (Exception e) {
@@ -309,44 +313,40 @@ public class MainActivity extends AppCompatActivity {
         });
     }
 
-    private void retryPrecreateWithLargeSize(String url, String fileName, String dpLogId) {
-        executor.execute(() -> {
-            try {
-                String precreateUrl = "https://www.1024terabox.com/api/precreate?app_id=" + APP_ID 
-                        + "&web=1&channel=dubox&clienttype=0"
-                        + "&jsToken=" + jsToken
-                        + "&dp-logid=" + dpLogId;
-
-                FormBody precreateBody = new FormBody.Builder()
-                        .add("path", "/" + fileName)
-                        .add("autoinit", "1")
-                        .add("target_path", "/")
-                        .add("source_url", url)
-                        .add("size", "1048576") // Próbujemy z 1MB jako dummy size
-                        .add("block_list", "[\"d41d8cd98f00b204e9800998ecf8427e\"]")
-                        .build();
-
-                Request request = new Request.Builder()
-                        .url(precreateUrl)
-                        .addHeader("Cookie", allCookies)
-                        .addHeader("User-Agent", USER_AGENT)
-                        .post(precreateBody)
-                        .build();
-
-                try (Response response = client.newCall(request).execute()) {
-                    String responseData = response.body() != null ? response.body().string() : "{}";
-                    JSONObject json = new JSONObject(responseData);
-                    if (json.optInt("errno", -1) == 0) {
-                        finalizeUpload(fileName, json.optString("uploadid", ""), url);
-                    } else {
-                        mainHandler.post(() -> tvStatus.setText("Error: " + json.optString("errmsg", "Unknown")));
-                    }
+    private long getRemoteFileSize(String url) {
+        try {
+            Request request = new Request.Builder()
+                    .url(url)
+                    .head() // Najpierw próbujemy HEAD
+                    .build();
+            try (Response response = client.newCall(request).execute()) {
+                if (response.isSuccessful()) {
+                    String contentLength = response.header("Content-Length");
+                    if (contentLength != null) return Long.parseLong(contentLength);
                 }
-            } catch (Exception e) { }
-        });
+            }
+            
+            // Jeśli HEAD zawiedzie, próbujemy GET z limitem
+            Request getRequest = new Request.Builder()
+                    .url(url)
+                    .addHeader("Range", "bytes=0-1")
+                    .get()
+                    .build();
+            try (Response response = client.newCall(getRequest).execute()) {
+                if (response.isSuccessful()) {
+                    String contentRange = response.header("Content-Range");
+                    if (contentRange != null && contentRange.contains("/")) {
+                        return Long.parseLong(contentRange.substring(contentRange.lastIndexOf("/") + 1));
+                    }
+                    String contentLength = response.header("Content-Length");
+                    if (contentLength != null) return Long.parseLong(contentLength);
+                }
+            }
+        } catch (Exception e) { }
+        return 0;
     }
 
-    private void finalizeUpload(String fileName, String uploadId, String sourceUrl) {
+    private void finalizeUpload(String fileName, String uploadId, String sourceUrl, long fileSize) {
         executor.execute(() -> {
             try {
                 String dpLogId = generateDpLogId();
@@ -355,13 +355,11 @@ public class MainActivity extends AppCompatActivity {
                         + "&jsToken=" + jsToken
                         + "&dp-logid=" + dpLogId;
 
-                // W create dla Remote Upload, jeśli nie znamy rozmiaru, 
-                // pominięcie parametru size lub wysłanie go jako pustego 
-                // często pozwala serwerowi na finalizację z poprawnym rozmiarem.
                 FormBody createBody = new FormBody.Builder()
                         .add("path", "/" + fileName)
                         .add("uploadid", uploadId)
                         .add("target_path", "/")
+                        .add("size", String.valueOf(fileSize))
                         .add("isdir", "0")
                         .add("rtype", "1")
                         .add("source_url", sourceUrl)
