@@ -32,6 +32,8 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
 import java.util.Random;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
 import okhttp3.FormBody;
 import okhttp3.OkHttpClient;
@@ -136,36 +138,93 @@ public class MainActivity extends AppCompatActivity {
                     ndus = part.trim().substring(5);
                     mainHandler.post(() -> {
                         tvStatus.setText("Status: Logged In (ndus captured)");
-                        if (!jsToken.isEmpty()) {
-                            webView.setVisibility(View.GONE);
-                            fetchTaskList();
-                        }
                     });
+                    // Fetch bdstoken from HTML in background
+                    fetchBdstokenFromHtml();
                     break;
                 }
             }
         }
     }
 
+    private void fetchBdstokenFromHtml() {
+        executor.execute(() -> {
+            try {
+                Request request = new Request.Builder()
+                        .url("https://www.terabox.com/main")
+                        .addHeader("Cookie", allCookies)
+                        .addHeader("User-Agent", USER_AGENT)
+                        .get()
+                        .build();
+
+                try (Response response = client.newCall(request).execute()) {
+                    if (response.isSuccessful() && response.body() != null) {
+                        String html = response.body().string();
+                        
+                        // Extract bdstoken from HTML
+                        String extractedBdstoken = extractTokenFromHtml(html, "bdstoken");
+                        if (!extractedBdstoken.isEmpty()) {
+                            bdstoken = extractedBdstoken;
+                        }
+                        
+                        mainHandler.post(() -> {
+                            if (!bdstoken.isEmpty()) {
+                                tvStatus.setText("Status: All tokens captured!");
+                            } else {
+                                tvStatus.setText("Status: Ready (bdstoken not found, using jsToken only)");
+                            }
+                            if (!ndus.isEmpty() && !jsToken.isEmpty()) {
+                                webView.setVisibility(View.GONE);
+                                fetchTaskList();
+                            }
+                        });
+                    }
+                }
+            } catch (Exception e) {
+                e.printStackTrace();
+            }
+        });
+    }
+
+    private String extractTokenFromHtml(String html, String tokenName) {
+        // Try multiple extraction patterns for bdstoken
+        String[] patterns = {
+                "\"" + tokenName + "\"\\s*:\\s*\"([^\"]+)\"",
+                tokenName + "\\s*=\\s*\"([^\"]+)\"",
+                "\"" + tokenName + "\"\\s*:\\s*'([^']+)'",
+                tokenName + "\\s*=\\s*'([^']+)'",
+                "\"" + tokenName + "\"\\s*:\\s*([a-zA-Z0-9]+)(?:[,}])"
+        };
+
+        for (String pattern : patterns) {
+            try {
+                Pattern p = Pattern.compile(pattern);
+                Matcher m = p.matcher(html);
+                if (m.find()) {
+                    String result = m.group(1);
+                    if (!result.isEmpty() && !result.equals("\"\"")) {
+                        return result;
+                    }
+                }
+            } catch (Exception e) {
+                // Continue to next pattern
+            }
+        }
+        return "";
+    }
+
     private void extractTokens() {
-        // JavaScript to find jsToken and bdstoken in various locations (window, scripts, initial state)
+        // JavaScript to find jsToken in the window object or script tags
         String js = "javascript:(function() { " +
-                "var result = {jsToken: '', bdstoken: ''}; " +
+                "var result = {jsToken: ''}; " +
                 "try { " +
                 "  if (window.jsToken) result.jsToken = window.jsToken; " +
-                "  if (window.bdstoken) result.bdstoken = window.bdstoken; " +
-                "  if (window.locals && window.locals.bdstoken) result.bdstoken = window.locals.bdstoken; " +
-                "  if (window.__INITIAL_STATE__ && window.__INITIAL_STATE__.bdstoken) result.bdstoken = window.__INITIAL_STATE__.bdstoken; " +
-                "  var scripts = document.getElementsByTagName('script'); " +
-                "  for (var i = 0; i < scripts.length; i++) { " +
-                "    var content = scripts[i].innerHTML; " +
-                "    if (!result.jsToken) { " +
+                "  if (!result.jsToken) { " +
+                "    var scripts = document.getElementsByTagName('script'); " +
+                "    for (var i = 0; i < scripts.length; i++) { " +
+                "      var content = scripts[i].innerHTML; " +
                 "      var m1 = content.match(/jsToken\\s*[:=]\\s*[\"']([^\"']+)[\"']/); " +
-                "      if (m1) result.jsToken = m1[1]; " +
-                "    } " +
-                "    if (!result.bdstoken) { " +
-                "      var m2 = content.match(/bdstoken\\s*[:=]\\s*[\"']([^\"']+)[\"']/); " +
-                "      if (m2) result.bdstoken = m2[1]; " +
+                "      if (m1) { result.jsToken = m1[1]; break; } " +
                 "    } " +
                 "  } " +
                 "} catch(e) {} " +
@@ -181,28 +240,17 @@ public class MainActivity extends AppCompatActivity {
                     }
                     JSONObject json = new JSONObject(jsonStr);
                     String capturedJsToken = json.optString("jsToken", "");
-                    String capturedBdstoken = json.optString("bdstoken", "");
                     
-                    if (!capturedJsToken.isEmpty()) jsToken = capturedJsToken;
-                    if (!capturedBdstoken.isEmpty()) bdstoken = capturedBdstoken;
-                    
-                    mainHandler.post(() -> {
-                        if (!jsToken.isEmpty()) {
-                            if (!bdstoken.isEmpty()) {
-                                tvStatus.setText("Status: Logged In (All tokens captured)");
-                                if (!ndus.isEmpty()) {
-                                    webView.setVisibility(View.GONE);
-                                    fetchTaskList();
-                                }
-                            } else {
-                                tvStatus.setText("Status: jsToken captured, searching for bdstoken...");
-                                // If we have jsToken and ndus but no bdstoken, try to reload transfer page to find it
-                                if (!ndus.isEmpty()) {
-                                    webView.loadUrl("https://www.terabox.com/main/transfer");
-                                }
+                    if (!capturedJsToken.isEmpty()) {
+                        jsToken = capturedJsToken;
+                        mainHandler.post(() -> {
+                            tvStatus.setText("Status: jsToken captured, fetching bdstoken...");
+                            if (!ndus.isEmpty() && !bdstoken.isEmpty()) {
+                                webView.setVisibility(View.GONE);
+                                fetchTaskList();
                             }
-                        }
-                    });
+                        });
+                    }
                 } catch (Exception e) {
                     e.printStackTrace();
                 }
@@ -229,13 +277,19 @@ public class MainActivity extends AppCompatActivity {
             Toast.makeText(this, "Please paste a link", Toast.LENGTH_SHORT).show();
             return;
         }
+        if (jsToken.isEmpty()) {
+            Toast.makeText(this, "jsToken not captured, please login again", Toast.LENGTH_SHORT).show();
+            return;
+        }
+        if (bdstoken.isEmpty()) {
+            Toast.makeText(this, "bdstoken not found, cannot proceed", Toast.LENGTH_SHORT).show();
+            return;
+        }
 
         executor.execute(() -> {
             try {
                 mainHandler.post(() -> tvStatus.setText("Status: Adding task..."));
                 
-                // TeraBox 2025 API parameters - using 1024terabox.com domain
-                // Generate dp-logid for proper request tracking
                 String dpLogId = generateDpLogId();
                 String apiUrl = "https://www.terabox.com/rest/2.0/services/cloud_dl?method=add_task"
                         + "&app_id=" + APP_ID 
@@ -243,7 +297,7 @@ public class MainActivity extends AppCompatActivity {
                         + "&channel=dubox" 
                         + "&clienttype=0"
                         + "&jsToken=" + jsToken
-                        + (bdstoken.isEmpty() ? "" : "&bdstoken=" + bdstoken)
+                        + "&bdstoken=" + bdstoken
                         + "&dp-logid=" + dpLogId;
 
                 FormBody formBody = new FormBody.Builder()
@@ -273,7 +327,6 @@ public class MainActivity extends AppCompatActivity {
                             fetchTaskList();
                         });
                     } else {
-                        // Detailed error reporting for 36001
                         mainHandler.post(() -> {
                             String msg = json.optString("errmsg", "Unknown error");
                             tvStatus.setText("Error " + errno + ": " + msg);
@@ -298,7 +351,7 @@ public class MainActivity extends AppCompatActivity {
                         + "&channel=dubox" 
                         + "&clienttype=0"
                         + "&jsToken=" + jsToken
-                        + (bdstoken.isEmpty() ? "" : "&bdstoken=" + bdstoken)
+                        + "&bdstoken=" + bdstoken
                         + "&dp-logid=" + dpLogId
                         + "&need_report=1"
                         + "&num=100"
@@ -361,7 +414,7 @@ public class MainActivity extends AppCompatActivity {
                         + "&channel=dubox" 
                         + "&clienttype=0"
                         + "&jsToken=" + jsToken
-                        + (bdstoken.isEmpty() ? "" : "&bdstoken=" + bdstoken)
+                        + "&bdstoken=" + bdstoken
                         + "&dp-logid=" + dpLogId;
                 
                 FormBody formBody = new FormBody.Builder()
