@@ -281,7 +281,7 @@ public class MainActivity extends AppCompatActivity {
                     if (!lastPart.isEmpty()) fileName = lastPart;
                 }
 
-                // Newest Terabox API requirements: full MD5 set and local_mtime
+                // Precreate parameters synchronized with Alist driver
                 String dummyMd5 = "d41d8cd98f00b204e9800998ecf8427e";
                 String blockList = "[\"" + dummyMd5 + "\"]";
                 String currentTime = String.valueOf(System.currentTimeMillis() / 1000);
@@ -293,8 +293,6 @@ public class MainActivity extends AppCompatActivity {
                         .addFormDataPart("isdir", "0")
                         .addFormDataPart("autoinit", "1")
                         .addFormDataPart("block_list", blockList)
-                        .addFormDataPart("content-md5", dummyMd5)
-                        .addFormDataPart("slice-md5", dummyMd5)
                         .addFormDataPart("local_mtime", currentTime)
                         .build();
 
@@ -370,20 +368,27 @@ public class MainActivity extends AppCompatActivity {
         executor.execute(() -> {
             try {
                 String dpLogId = generateDpLogId();
-                // Final attempt: Move all parameters to Query String (URL) 
-                // and use an empty FormBody as required by some Terabox API versions
+                // Final fix based on Alist/Pahadi10 analysis: Use MultipartBody for 'create'
+                // and ensure all required parameters are present in the body.
+                String dummyMd5 = "d41d8cd98f00b204e9800998ecf8427e";
+                String blockList = "[\"" + dummyMd5 + "\"]";
                 String currentTime = String.valueOf(System.currentTimeMillis() / 1000);
+                
                 String createUrl = "https://1024terabox.com/api/create?app_id=" + APP_ID 
                         + "&web=1&channel=dubox&clienttype=0"
                         + "&jsToken=" + jsToken
-                        + "&dp-logid=" + dpLogId
-                        + "&path=" + java.net.URLEncoder.encode("/" + fileName, "UTF-8")
-                        + "&size=" + fileSize
-                        + "&isdir=0"
-                        + "&uploadid=" + uploadId
-                        + "&block_list=" + java.net.URLEncoder.encode("[\"d41d8cd98f00b204e9800998ecf8427e\"]", "UTF-8")
-                        + "&rtype=1"
-                        + "&local_mtime=" + currentTime;
+                        + "&dp-logid=" + dpLogId;
+
+                MultipartBody createBody = new MultipartBody.Builder()
+                        .setType(MultipartBody.FORM)
+                        .addFormDataPart("path", "/" + fileName)
+                        .addFormDataPart("size", String.valueOf(fileSize))
+                        .addFormDataPart("uploadid", uploadId)
+                        .addFormDataPart("block_list", blockList)
+                        .addFormDataPart("isdir", "0")
+                        .addFormDataPart("rtype", "1")
+                        .addFormDataPart("local_mtime", currentTime)
+                        .build();
 
                 Request request = new Request.Builder()
                         .url(createUrl)
@@ -392,7 +397,7 @@ public class MainActivity extends AppCompatActivity {
                         .addHeader("Referer", "https://1024terabox.com/main")
                         .addHeader("Origin", "https://1024terabox.com")
                         .addHeader("X-Requested-With", "XMLHttpRequest")
-                        .post(new FormBody.Builder().build()) // Empty body
+                        .post(createBody)
                         .build();
 
                 try (Response response = client.newCall(request).execute()) {
