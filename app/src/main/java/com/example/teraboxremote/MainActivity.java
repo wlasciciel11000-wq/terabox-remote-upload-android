@@ -148,45 +148,58 @@ public class MainActivity extends AppCompatActivity {
     }
 
     private void extractTokens() {
-        // JavaScript to find jsToken and bdstoken in the window object or script tags
+        // JavaScript to find jsToken and bdstoken in various locations (window, scripts, initial state)
         String js = "javascript:(function() { " +
                 "var result = {jsToken: '', bdstoken: ''}; " +
-                "if (window.jsToken) result.jsToken = window.jsToken; " +
-                "if (window.locals && window.locals.bdstoken) result.bdstoken = window.locals.bdstoken; " +
-                "else if (window.bdstoken) result.bdstoken = window.bdstoken; " +
-                "var scripts = document.getElementsByTagName('script'); " +
-                "for (var i = 0; i < scripts.length; i++) { " +
-                "  var content = scripts[i].innerHTML; " +
-                "  if (!result.jsToken) { " +
-                "    var m1 = content.match(/jsToken\\s*:\\s*\"([^\"]+)\"/); " +
-                "    if (m1) result.jsToken = m1[1]; " +
+                "try { " +
+                "  if (window.jsToken) result.jsToken = window.jsToken; " +
+                "  if (window.bdstoken) result.bdstoken = window.bdstoken; " +
+                "  if (window.locals && window.locals.bdstoken) result.bdstoken = window.locals.bdstoken; " +
+                "  if (window.__INITIAL_STATE__ && window.__INITIAL_STATE__.bdstoken) result.bdstoken = window.__INITIAL_STATE__.bdstoken; " +
+                "  var scripts = document.getElementsByTagName('script'); " +
+                "  for (var i = 0; i < scripts.length; i++) { " +
+                "    var content = scripts[i].innerHTML; " +
+                "    if (!result.jsToken) { " +
+                "      var m1 = content.match(/jsToken\\s*[:=]\\s*[\"']([^\"']+)[\"']/); " +
+                "      if (m1) result.jsToken = m1[1]; " +
+                "    } " +
+                "    if (!result.bdstoken) { " +
+                "      var m2 = content.match(/bdstoken\\s*[:=]\\s*[\"']([^\"']+)[\"']/); " +
+                "      if (m2) result.bdstoken = m2[1]; " +
+                "    } " +
                 "  } " +
-                "  if (!result.bdstoken) { " +
-                "    var m2 = content.match(/bdstoken\\s*:\\s*\"([^\"]+)\"/); " +
-                "    if (m2) result.bdstoken = m2[1]; " +
-                "  } " +
-                "} " +
+                "} catch(e) {} " +
                 "return JSON.stringify(result); " +
                 "})()";
         
         webView.evaluateJavascript(js, value -> {
             if (value != null && !value.equals("null")) {
                 try {
-                    String jsonStr = value.startsWith("\"") ? value.substring(1, value.length() - 1).replace("\\\"", "\"") : value;
+                    String jsonStr = value;
+                    if (value.startsWith("\"") && value.endsWith("\"")) {
+                        jsonStr = value.substring(1, value.length() - 1).replace("\\\"", "\"");
+                    }
                     JSONObject json = new JSONObject(jsonStr);
-                    jsToken = json.optString("jsToken", "");
-                    bdstoken = json.optString("bdstoken", "");
+                    String capturedJsToken = json.optString("jsToken", "");
+                    String capturedBdstoken = json.optString("bdstoken", "");
+                    
+                    if (!capturedJsToken.isEmpty()) jsToken = capturedJsToken;
+                    if (!capturedBdstoken.isEmpty()) bdstoken = capturedBdstoken;
                     
                     mainHandler.post(() -> {
                         if (!jsToken.isEmpty()) {
                             if (!bdstoken.isEmpty()) {
                                 tvStatus.setText("Status: Logged In (All tokens captured)");
+                                if (!ndus.isEmpty()) {
+                                    webView.setVisibility(View.GONE);
+                                    fetchTaskList();
+                                }
                             } else {
-                                tvStatus.setText("Status: Logged In (jsToken captured, bdstoken empty)");
-                            }
-                            if (!ndus.isEmpty()) {
-                                webView.setVisibility(View.GONE);
-                                fetchTaskList();
+                                tvStatus.setText("Status: jsToken captured, searching for bdstoken...");
+                                // If we have jsToken and ndus but no bdstoken, try to reload transfer page to find it
+                                if (!ndus.isEmpty()) {
+                                    webView.loadUrl("https://www.terabox.com/main/transfer");
+                                }
                             }
                         }
                     });
