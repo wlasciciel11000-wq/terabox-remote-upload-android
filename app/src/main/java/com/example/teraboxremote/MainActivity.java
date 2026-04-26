@@ -270,16 +270,17 @@ public class MainActivity extends AppCompatActivity {
                     if (!lastPart.isEmpty()) fileName = lastPart;
                 }
 
-                // FIX: Zamiast usuwać size, ustawiamy go na bardzo dużą wartość (np. 1TB),
-                // co często wymusza na serwerze TeraBox pobranie rzeczywistego rozmiaru z nagłówków linku.
-                // Dodatkowo dodajemy pusty block_list, który jest wymagany przez precreate.
+                // FIX: Zgodnie z analizą API, dla Remote Upload (source_url) parametr size 
+                // w metodzie precreate powinien być pominięty lub ustawiony na konkretną wartość, 
+                // która nie jest 0. Jednak kluczowe jest, aby w przypadku linków zewnętrznych 
+                // serwer sam wynegocjował rozmiar. 
+                // Próbujemy wysłać precreate BEZ parametru size, ale z block_list.
                 FormBody precreateBody = new FormBody.Builder()
                         .add("path", "/" + fileName)
                         .add("autoinit", "1")
                         .add("target_path", "/")
                         .add("source_url", url)
-                        .add("size", "1099511627776") // 1TB jako placeholder
-                        .add("block_list", "[\"d41d8cd98f00b204e9800998ecf8427e\"]") // MD5 pustego pliku
+                        .add("block_list", "[\"d41d8cd98f00b204e9800998ecf8427e\"]")
                         .build();
 
                 Request precreateRequest = new Request.Builder()
@@ -296,16 +297,52 @@ public class MainActivity extends AppCompatActivity {
                     int errno = json.optInt("errno", -1);
 
                     if (errno == 0) {
-                        // KROK 2: Create (Finalizacja)
                         finalizeUpload(fileName, json.optString("uploadid", ""), url);
                     } else {
-                        // Fallback do metody add_task jeśli precreate zawiedzie
-                        fallbackAddTask(url, fileName);
+                        // Jeśli precreate bez size zawiedzie, spróbujmy z bardzo dużą wartością jako fallback
+                        retryPrecreateWithLargeSize(url, fileName, dpLogId);
                     }
                 }
             } catch (Exception e) {
                 mainHandler.post(() -> tvStatus.setText("Exception: " + e.getMessage()));
             }
+        });
+    }
+
+    private void retryPrecreateWithLargeSize(String url, String fileName, String dpLogId) {
+        executor.execute(() -> {
+            try {
+                String precreateUrl = "https://www.1024terabox.com/api/precreate?app_id=" + APP_ID 
+                        + "&web=1&channel=dubox&clienttype=0"
+                        + "&jsToken=" + jsToken
+                        + "&dp-logid=" + dpLogId;
+
+                FormBody precreateBody = new FormBody.Builder()
+                        .add("path", "/" + fileName)
+                        .add("autoinit", "1")
+                        .add("target_path", "/")
+                        .add("source_url", url)
+                        .add("size", "1048576") // Próbujemy z 1MB jako dummy size
+                        .add("block_list", "[\"d41d8cd98f00b204e9800998ecf8427e\"]")
+                        .build();
+
+                Request request = new Request.Builder()
+                        .url(precreateUrl)
+                        .addHeader("Cookie", allCookies)
+                        .addHeader("User-Agent", USER_AGENT)
+                        .post(precreateBody)
+                        .build();
+
+                try (Response response = client.newCall(request).execute()) {
+                    String responseData = response.body() != null ? response.body().string() : "{}";
+                    JSONObject json = new JSONObject(responseData);
+                    if (json.optInt("errno", -1) == 0) {
+                        finalizeUpload(fileName, json.optString("uploadid", ""), url);
+                    } else {
+                        mainHandler.post(() -> tvStatus.setText("Error: " + json.optString("errmsg", "Unknown")));
+                    }
+                }
+            } catch (Exception e) { }
         });
     }
 
@@ -318,7 +355,9 @@ public class MainActivity extends AppCompatActivity {
                         + "&jsToken=" + jsToken
                         + "&dp-logid=" + dpLogId;
 
-                // FIX: W create również używamy placeholderów dla size i block_list.
+                // W create dla Remote Upload, jeśli nie znamy rozmiaru, 
+                // pominięcie parametru size lub wysłanie go jako pustego 
+                // często pozwala serwerowi na finalizację z poprawnym rozmiarem.
                 FormBody createBody = new FormBody.Builder()
                         .add("path", "/" + fileName)
                         .add("uploadid", uploadId)
@@ -326,7 +365,6 @@ public class MainActivity extends AppCompatActivity {
                         .add("isdir", "0")
                         .add("rtype", "1")
                         .add("source_url", sourceUrl)
-                        .add("size", "1099511627776")
                         .add("block_list", "[\"d41d8cd98f00b204e9800998ecf8427e\"]")
                         .build();
 
@@ -349,52 +387,11 @@ public class MainActivity extends AppCompatActivity {
         });
     }
 
-    private void fallbackAddTask(String url, String fileName) {
-        executor.execute(() -> {
-            try {
-                String dpLogId = generateDpLogId();
-                String apiUrl = "https://www.1024terabox.com/rest/2.0/services/cloud_dl?method=add_task"
-                        + "&app_id=" + APP_ID 
-                        + "&bdstoken=" + bdstoken
-                        + "&jsToken=" + jsToken
-                        + "&dp-logid=" + dpLogId;
-
-                FormBody formBody = new FormBody.Builder()
-                        .add("source_url", url)
-                        .add("save_path", "/" + fileName)
-                        .build();
-
-                Request request = new Request.Builder()
-                        .url(apiUrl)
-                        .addHeader("Cookie", allCookies)
-                        .addHeader("User-Agent", USER_AGENT)
-                        .addHeader("Referer", "https://www.1024terabox.com/main")
-                        .post(formBody)
-                        .build();
-
-                try (Response response = client.newCall(request).execute()) {
-                    String responseData = response.body() != null ? response.body().string() : "{}";
-                    JSONObject json = new JSONObject(responseData);
-                    int errno = json.optInt("errno", -1);
-                    mainHandler.post(() -> {
-                        if (errno == 0) {
-                            tvStatus.setText("Status: Task Added (Fallback)");
-                            fetchTaskList();
-                        } else {
-                            tvStatus.setText("Error " + errno + ": " + json.optString("errmsg", "Unknown"));
-                        }
-                    });
-                }
-            } catch (Exception e) { }
-        });
-    }
-
     private void fetchTaskList() {
         if (ndus.isEmpty()) return;
         executor.execute(() -> {
             try {
                 String dpLogId = generateDpLogId();
-                // Próbujemy pobrać listę plików
                 String listUrl = "https://www.1024terabox.com/api/list?app_id=" + APP_ID 
                         + "&web=1&channel=dubox&clienttype=0"
                         + "&jsToken=" + jsToken
@@ -419,8 +416,8 @@ public class MainActivity extends AppCompatActivity {
                             for (int i = 0; i < array.length(); i++) {
                                 JSONObject obj = array.getJSONObject(i);
                                 TaskItem item = new TaskItem();
-                                item.id = obj.optString("fs_id", obj.optString("task_id", "0"));
-                                item.name = obj.optString("server_filename", obj.optString("task_name", "Unknown"));
+                                item.id = obj.optString("fs_id", "0");
+                                item.name = obj.optString("server_filename", "Unknown");
                                 item.status = obj.optInt("status", 0);
                                 item.progress = 100;
                                 newTasks.add(item);
