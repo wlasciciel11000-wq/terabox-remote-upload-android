@@ -365,6 +365,7 @@ public class MainActivity extends AppCompatActivity {
                         + "&jsToken=" + jsToken
                         + "&dp-logid=" + dpLogId;
 
+                long currentTime = System.currentTimeMillis() / 1000;
                 FormBody createBody = new FormBody.Builder()
                         .add("path", "/" + fileName)
                         .add("uploadid", uploadId)
@@ -372,6 +373,8 @@ public class MainActivity extends AppCompatActivity {
                         .add("size", String.valueOf(fileSize))
                         .add("isdir", "0")
                         .add("rtype", "1")
+                        .add("mtime", String.valueOf(currentTime))
+                        .add("local_mtime", String.valueOf(currentTime))
                         .add("source_url", sourceUrl)
                         .add("block_list", "[\"d41d8cd98f00b204e9800998ecf8427e\"]")
                         .build();
@@ -382,6 +385,7 @@ public class MainActivity extends AppCompatActivity {
                         .addHeader("User-Agent", USER_AGENT)
                         .addHeader("Referer", "https://www.1024terabox.com/main")
                         .addHeader("Origin", "https://www.1024terabox.com")
+                        .addHeader("X-Requested-With", "XMLHttpRequest")
                         .post(createBody)
                         .build();
 
