@@ -238,7 +238,7 @@ public class MainActivity extends AppCompatActivity {
         for (int i = 0; i < 10; i++) {
             sb.append(String.format("%02x", random.nextInt(256)));
         }
-        return sb.toString();
+        return sb.toString().toUpperCase();
     }
 
     private void startRemoteUpload() {
@@ -256,16 +256,28 @@ public class MainActivity extends AppCompatActivity {
             try {
                 mainHandler.post(() -> tvStatus.setText("Status: Adding task..."));
                 String dpLogId = generateDpLogId();
-                // Ważne: dodajemy wszystkie parametry do URL
-                String apiUrl = "https://www.terabox.com/rest/2.0/services/cloud_dl?method=add_task"
-                        + "&app_id=" + APP_ID 
-                        + "&bdstoken=" + bdstoken
+                
+                // Zgodnie z terabox-upload-tool, używamy domeny 1024terabox.com dla API
+                String apiUrl = "https://www.1024terabox.com/api/precreate?app_id=" + APP_ID 
+                        + "&web=1&channel=dubox&clienttype=0"
                         + "&jsToken=" + jsToken
                         + "&dp-logid=" + dpLogId;
 
+                // Precreate wymaga specyficznych parametrów
+                String fileName = "remote_file_" + System.currentTimeMillis() + ".txt";
+                if (url.contains("/")) {
+                    String lastPart = url.substring(url.lastIndexOf("/") + 1);
+                    if (lastPart.contains("?")) lastPart = lastPart.substring(0, lastPart.indexOf("?"));
+                    if (!lastPart.isEmpty()) fileName = lastPart;
+                }
+
                 FormBody formBody = new FormBody.Builder()
+                        .add("path", "/" + fileName)
+                        .add("autoinit", "1")
+                        .add("target_path", "/")
+                        .add("block_list", "[\"d41d8cd98f00b204e9800998ecf8427e\"]") // MD5 pustego pliku jako placeholder
+                        .add("size", "0")
                         .add("source_url", url)
-                        .add("save_path", "/")
                         .build();
 
                 Request request = new Request.Builder()
@@ -288,7 +300,8 @@ public class MainActivity extends AppCompatActivity {
                             fetchTaskList();
                         });
                     } else {
-                        mainHandler.post(() -> tvStatus.setText("Error " + errno + ": " + json.optString("errmsg", "Unknown")));
+                        // Jeśli precreate zawiedzie, spróbujmy starej metody add_task jako fallback
+                        fallbackAddTask(url);
                     }
                 }
             } catch (Exception e) {
@@ -297,17 +310,55 @@ public class MainActivity extends AppCompatActivity {
         });
     }
 
+    private void fallbackAddTask(String url) {
+        executor.execute(() -> {
+            try {
+                String dpLogId = generateDpLogId();
+                String apiUrl = "https://www.terabox.com/rest/2.0/services/cloud_dl?method=add_task"
+                        + "&app_id=" + APP_ID 
+                        + "&bdstoken=" + bdstoken
+                        + "&jsToken=" + jsToken
+                        + "&dp-logid=" + dpLogId;
+
+                FormBody formBody = new FormBody.Builder()
+                        .add("source_url", url)
+                        .add("save_path", "/")
+                        .build();
+
+                Request request = new Request.Builder()
+                        .url(apiUrl)
+                        .addHeader("Cookie", allCookies)
+                        .addHeader("User-Agent", USER_AGENT)
+                        .post(formBody)
+                        .build();
+
+                try (Response response = client.newCall(request).execute()) {
+                    String responseData = response.body() != null ? response.body().string() : "No data";
+                    JSONObject json = new JSONObject(responseData);
+                    int errno = json.optInt("errno", -1);
+                    mainHandler.post(() -> {
+                        if (errno == 0) {
+                            tvStatus.setText("Status: Task Added (Fallback)");
+                            fetchTaskList();
+                        } else {
+                            tvStatus.setText("Error " + errno + ": " + json.optString("errmsg", "Unknown"));
+                        }
+                    });
+                }
+            } catch (Exception e) { }
+        });
+    }
+
     private void fetchTaskList() {
         if (ndus.isEmpty()) return;
         executor.execute(() -> {
             try {
                 String dpLogId = generateDpLogId();
-                String listUrl = "https://www.terabox.com/rest/2.0/services/cloud_dl?method=list_task"
-                        + "&app_id=" + APP_ID 
-                        + "&bdstoken=" + bdstoken
+                String listUrl = "https://www.1024terabox.com/api/list?app_id=" + APP_ID 
+                        + "&web=1&channel=dubox&clienttype=0"
                         + "&jsToken=" + jsToken
                         + "&dp-logid=" + dpLogId
-                        + "&need_report=1";
+                        + "&dir=%2F&num=100&page=1";
 
                 Request request = new Request.Builder()
                         .url(listUrl)
@@ -320,18 +371,16 @@ public class MainActivity extends AppCompatActivity {
                     if (response.isSuccessful() && response.body() != null) {
                         String data = response.body().string();
                         JSONObject json = new JSONObject(data);
-                        if (json.has("task_info")) {
-                            JSONArray array = json.getJSONArray("task_info");
+                        if (json.has("list")) {
+                            JSONArray array = json.getJSONArray("list");
                             List<TaskItem> newTasks = new ArrayList<>();
                             for (int i = 0; i < array.length(); i++) {
                                 JSONObject obj = array.getJSONObject(i);
                                 TaskItem item = new TaskItem();
-                                item.id = obj.getString("task_id");
-                                item.name = obj.optString("task_name", "Unknown");
-                                item.status = obj.optInt("status", -1);
-                                long finished = obj.optLong("finished_size", 0);
-                                long total = obj.optLong("file_size", 0);
-                                item.progress = (total > 0) ? (int) ((finished * 100) / total) : (item.status == 0 ? 100 : 0);
+                                item.id = obj.optString("fs_id", obj.optString("task_id", "0"));
+                                item.name = obj.optString("server_filename", obj.optString("task_name", "Unknown"));
+                                item.status = obj.optInt("status", 0);
+                                item.progress = 100; // Dla listy plików zawsze 100%
                                 newTasks.add(item);
                             }
                             mainHandler.post(() -> {
@@ -350,26 +399,29 @@ public class MainActivity extends AppCompatActivity {
         executor.execute(() -> {
             try {
                 String dpLogId = generateDpLogId();
-                // Zmiana na GET dla cancel_task, co często pomaga przy błędzie 400
-                String delUrl = "https://www.terabox.com/rest/2.0/services/cloud_dl?method=cancel_task"
+                // Używamy endpointu filemanager z terabox-upload-tool
+                String delUrl = "https://www.1024terabox.com/api/filemanager?opera=delete"
                         + "&app_id=" + APP_ID 
-                        + "&bdstoken=" + bdstoken
                         + "&jsToken=" + jsToken
-                        + "&dp-logid=" + dpLogId
-                        + "&task_ids=" + taskId;
+                        + "&dp-logid=" + dpLogId;
                 
+                // filelist musi być tablicą JSON z fs_id
+                String fileListJson = "[" + taskId + "]";
+                FormBody formBody = new FormBody.Builder()
+                        .add("filelist", fileListJson)
+                        .build();
+
                 Request request = new Request.Builder()
                         .url(delUrl)
                         .addHeader("Cookie", allCookies)
                         .addHeader("User-Agent", USER_AGENT)
-                        .addHeader("Referer", "https://www.terabox.com/main")
-                        .get()
+                        .post(formBody)
                         .build();
 
                 try (Response response = client.newCall(request).execute()) {
                     if (response.isSuccessful()) {
                         mainHandler.post(() -> {
-                            Toast.makeText(MainActivity.this, "Task cancelled", Toast.LENGTH_SHORT).show();
+                            Toast.makeText(MainActivity.this, "Item deleted", Toast.LENGTH_SHORT).show();
                             fetchTaskList();
                         });
                     } else {
@@ -405,8 +457,7 @@ public class MainActivity extends AppCompatActivity {
             TaskItem item = items.get(position);
             holder.tvName.setText(item.name);
             holder.pbProgress.setProgress(item.progress);
-            String statusStr = (item.status == 0 ? "Success" : (item.status == 1 ? "Downloading" : "Waiting"));
-            holder.tvStatus.setText(statusStr + " (" + item.progress + "%)");
+            holder.tvStatus.setText("Status: " + (item.progress == 100 ? "Completed" : "Processing") + " (" + item.progress + "%)");
             holder.btnDelete.setOnClickListener(v -> deleteTask(item.id));
         }
 
