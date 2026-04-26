@@ -257,48 +257,47 @@ public class MainActivity extends AppCompatActivity {
                 mainHandler.post(() -> tvStatus.setText("Status: Adding task..."));
                 String dpLogId = generateDpLogId();
                 
-                // Używamy metody add_task z rest/2.0/services/cloud_dl
-                // To jest dedykowana metoda dla Remote Upload (Offline Download)
-                String apiUrl = "https://www.1024terabox.com/rest/2.0/services/cloud_dl?method=add_task"
-                        + "&app_id=" + APP_ID 
-                        + "&web=1"
-                        + "&channel=dubox"
-                        + "&clienttype=5" // clienttype=5 jest kluczowy dla remote upload
+                // KROK 1: Precreate
+                String precreateUrl = "https://www.1024terabox.com/api/precreate?app_id=" + APP_ID 
+                        + "&web=1&channel=dubox&clienttype=0"
                         + "&jsToken=" + jsToken
                         + "&dp-logid=" + dpLogId;
 
-                FormBody formBody = new FormBody.Builder()
+                String fileName = "remote_" + System.currentTimeMillis();
+                if (url.contains("/")) {
+                    String lastPart = url.substring(url.lastIndexOf("/") + 1);
+                    if (lastPart.contains("?")) lastPart = lastPart.substring(0, lastPart.indexOf("?"));
+                    if (!lastPart.isEmpty()) fileName = lastPart;
+                }
+
+                // Przywrócona logika z załącznika - usunięto tylko size:0
+                FormBody precreateBody = new FormBody.Builder()
+                        .add("path", "/" + fileName)
+                        .add("autoinit", "1")
+                        .add("target_path", "/")
                         .add("source_url", url)
-                        .add("save_path", "/")
                         .build();
 
-                Request request = new Request.Builder()
-                        .url(apiUrl)
+                Request precreateRequest = new Request.Builder()
+                        .url(precreateUrl)
                         .addHeader("Cookie", allCookies)
                         .addHeader("User-Agent", USER_AGENT)
                         .addHeader("Referer", "https://www.1024terabox.com/main")
-                        .addHeader("Origin", "https://www.1024terabox.com")
-                        .post(formBody)
+                        .post(precreateBody)
                         .build();
 
-                try (Response response = client.newCall(request).execute()) {
+                try (Response response = client.newCall(precreateRequest).execute()) {
                     String responseData = response.body() != null ? response.body().string() : "{}";
                     JSONObject json = new JSONObject(responseData);
                     int errno = json.optInt("errno", -1);
-                    
-                    mainHandler.post(() -> {
-                        if (errno == 0) {
-                            tvStatus.setText("Status: Task Added Successfully");
-                            etLink.setText("");
-                            fetchTaskList();
-                        } else {
-                            tvStatus.setText("Error " + errno + ": " + json.optString("errmsg", "Unknown"));
-                            // Jeśli błąd to -1, spróbujmy z clienttype=0 jako fallback
-                            if (errno == -1) {
-                                retryWithClientType0(url);
-                            }
-                        }
-                    });
+
+                    if (errno == 0) {
+                        // KROK 2: Create (Finalizacja)
+                        finalizeUpload(fileName, json.optString("uploadid", ""), url);
+                    } else {
+                        // Fallback do metody add_task jeśli precreate zawiedzie
+                        fallbackAddTask(url, fileName);
+                    }
                 }
             } catch (Exception e) {
                 mainHandler.post(() -> tvStatus.setText("Exception: " + e.getMessage()));
@@ -306,21 +305,57 @@ public class MainActivity extends AppCompatActivity {
         });
     }
 
-    private void retryWithClientType0(String url) {
+    private void finalizeUpload(String fileName, String uploadId, String sourceUrl) {
+        executor.execute(() -> {
+            try {
+                String dpLogId = generateDpLogId();
+                String createUrl = "https://www.1024terabox.com/api/create?app_id=" + APP_ID 
+                        + "&web=1&channel=dubox&clienttype=0"
+                        + "&jsToken=" + jsToken
+                        + "&dp-logid=" + dpLogId;
+
+                // Przywrócona logika z załącznika - usunięto tylko size:0
+                FormBody createBody = new FormBody.Builder()
+                        .add("path", "/" + fileName)
+                        .add("uploadid", uploadId)
+                        .add("target_path", "/")
+                        .add("isdir", "0")
+                        .add("rtype", "1")
+                        .add("source_url", sourceUrl)
+                        .build();
+
+                Request request = new Request.Builder()
+                        .url(createUrl)
+                        .addHeader("Cookie", allCookies)
+                        .addHeader("User-Agent", USER_AGENT)
+                        .addHeader("Referer", "https://www.1024terabox.com/main")
+                        .post(createBody)
+                        .build();
+
+                try (Response response = client.newCall(request).execute()) {
+                    mainHandler.post(() -> {
+                        tvStatus.setText("Status: Task Finalized Successfully");
+                        etLink.setText("");
+                        fetchTaskList();
+                    });
+                }
+            } catch (Exception e) { }
+        });
+    }
+
+    private void fallbackAddTask(String url, String fileName) {
         executor.execute(() -> {
             try {
                 String dpLogId = generateDpLogId();
                 String apiUrl = "https://www.1024terabox.com/rest/2.0/services/cloud_dl?method=add_task"
                         + "&app_id=" + APP_ID 
-                        + "&web=1"
-                        + "&channel=dubox"
-                        + "&clienttype=0"
+                        + "&bdstoken=" + bdstoken
                         + "&jsToken=" + jsToken
                         + "&dp-logid=" + dpLogId;
 
                 FormBody formBody = new FormBody.Builder()
                         .add("source_url", url)
-                        .add("save_path", "/")
+                        .add("save_path", "/" + fileName)
                         .build();
 
                 Request request = new Request.Builder()
@@ -338,7 +373,6 @@ public class MainActivity extends AppCompatActivity {
                     mainHandler.post(() -> {
                         if (errno == 0) {
                             tvStatus.setText("Status: Task Added (Fallback)");
-                            etLink.setText("");
                             fetchTaskList();
                         } else {
                             tvStatus.setText("Error " + errno + ": " + json.optString("errmsg", "Unknown"));
@@ -354,15 +388,12 @@ public class MainActivity extends AppCompatActivity {
         executor.execute(() -> {
             try {
                 String dpLogId = generateDpLogId();
-                // Pobieramy listę zadań remote upload
-                String listUrl = "https://www.1024terabox.com/rest/2.0/services/cloud_dl?method=list_task"
-                        + "&app_id=" + APP_ID 
-                        + "&web=1"
-                        + "&channel=dubox"
-                        + "&clienttype=5"
+                // Próbujemy pobrać listę plików
+                String listUrl = "https://www.1024terabox.com/api/list?app_id=" + APP_ID 
+                        + "&web=1&channel=dubox&clienttype=0"
                         + "&jsToken=" + jsToken
                         + "&dp-logid=" + dpLogId
-                        + "&need_report=1&num=100&page=1";
+                        + "&dir=%2F&num=100&page=1";
 
                 Request request = new Request.Builder()
                         .url(listUrl)
@@ -376,23 +407,16 @@ public class MainActivity extends AppCompatActivity {
                     if (response.isSuccessful() && response.body() != null) {
                         String data = response.body().string();
                         JSONObject json = new JSONObject(data);
-                        if (json.has("task_list")) {
-                            JSONArray array = json.getJSONArray("task_list");
+                        if (json.has("list")) {
+                            JSONArray array = json.getJSONArray("list");
                             List<TaskItem> newTasks = new ArrayList<>();
                             for (int i = 0; i < array.length(); i++) {
                                 JSONObject obj = array.getJSONObject(i);
                                 TaskItem item = new TaskItem();
-                                item.id = obj.optString("task_id", "0");
-                                item.name = obj.optString("task_name", "Unknown");
+                                item.id = obj.optString("fs_id", obj.optString("task_id", "0"));
+                                item.name = obj.optString("server_filename", obj.optString("task_name", "Unknown"));
                                 item.status = obj.optInt("status", 0);
-                                // Obliczanie postępu
-                                long fileSize = obj.optLong("file_size", 0);
-                                long finishedSize = obj.optLong("finished_size", 0);
-                                if (fileSize > 0) {
-                                    item.progress = (int) ((finishedSize * 100) / fileSize);
-                                } else {
-                                    item.progress = (item.status == 3) ? 100 : 0;
-                                }
+                                item.progress = 100;
                                 newTasks.add(item);
                             }
                             mainHandler.post(() -> {
@@ -411,27 +435,28 @@ public class MainActivity extends AppCompatActivity {
         executor.execute(() -> {
             try {
                 String dpLogId = generateDpLogId();
-                String delUrl = "https://www.1024terabox.com/rest/2.0/services/cloud_dl?method=cancel_task"
+                String delUrl = "https://www.1024terabox.com/api/filemanager?opera=delete"
                         + "&app_id=" + APP_ID 
-                        + "&web=1"
-                        + "&channel=dubox"
-                        + "&clienttype=5"
                         + "&jsToken=" + jsToken
-                        + "&dp-logid=" + dpLogId
-                        + "&task_id=" + taskId;
+                        + "&dp-logid=" + dpLogId;
+                
+                String fileListJson = "[\"" + taskId + "\"]";
+                FormBody formBody = new FormBody.Builder()
+                        .add("filelist", fileListJson)
+                        .build();
 
                 Request request = new Request.Builder()
                         .url(delUrl)
                         .addHeader("Cookie", allCookies)
                         .addHeader("User-Agent", USER_AGENT)
                         .addHeader("Referer", "https://www.1024terabox.com/main")
-                        .get()
+                        .post(formBody)
                         .build();
 
                 try (Response response = client.newCall(request).execute()) {
                     if (response.isSuccessful()) {
                         mainHandler.post(() -> {
-                            Toast.makeText(MainActivity.this, "Task cancelled", Toast.LENGTH_SHORT).show();
+                            Toast.makeText(MainActivity.this, "Item deleted", Toast.LENGTH_SHORT).show();
                             fetchTaskList();
                         });
                     }
@@ -465,16 +490,7 @@ public class MainActivity extends AppCompatActivity {
             TaskItem item = items.get(position);
             holder.tvName.setText(item.name);
             holder.pbProgress.setProgress(item.progress);
-            String statusText = "Status: ";
-            switch (item.status) {
-                case 0: statusText += "Pending"; break;
-                case 1: statusText += "Downloading"; break;
-                case 2: statusText += "Success"; break;
-                case 3: statusText += "Finished"; break;
-                case 4: statusText += "Failed"; break;
-                default: statusText += "Unknown (" + item.status + ")"; break;
-            }
-            holder.tvStatus.setText(statusText + " (" + item.progress + "%)");
+            holder.tvStatus.setText("Status: " + (item.progress == 100 ? "Completed" : "Processing") + " (" + item.progress + "%)");
             holder.btnDelete.setOnClickListener(v -> deleteTask(item.id));
         }
 
