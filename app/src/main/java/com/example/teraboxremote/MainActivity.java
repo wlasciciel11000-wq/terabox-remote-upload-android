@@ -365,13 +365,13 @@ public class MainActivity extends AppCompatActivity {
                         + "&jsToken=" + jsToken
                         + "&dp-logid=" + dpLogId;
 
-                long currentTime = System.currentTimeMillis() / 1000;
                 FormBody createBody = new FormBody.Builder()
                         .add("path", "/" + fileName)
                         .add("size", String.valueOf(fileSize))
                         .add("isdir", "0")
                         .add("uploadid", uploadId)
                         .add("block_list", "[\"d41d8cd98f00b204e9800998ecf8427e\"]")
+                        .add("rtype", "1")
                         .build();
 
                 Request request = new Request.Builder()
