@@ -136,9 +136,7 @@ public class MainActivity extends AppCompatActivity {
             for (String part : parts) {
                 if (part.trim().startsWith("ndus=")) {
                     ndus = part.trim().substring(5);
-                    mainHandler.post(() -> {
-                        tvStatus.setText("Status: Logged In (ndus captured)");
-                    });
+                    mainHandler.post(() -> tvStatus.setText("Status: ndus captured, fetching bdstoken..."));
                     fetchBdstokenFromHtml();
                     break;
                 }
@@ -167,12 +165,10 @@ public class MainActivity extends AppCompatActivity {
                         mainHandler.post(() -> {
                             if (!bdstoken.isEmpty()) {
                                 tvStatus.setText("Status: All tokens captured!");
-                            } else {
-                                tvStatus.setText("Status: Ready (bdstoken not found)");
-                            }
-                            if (!ndus.isEmpty() && !jsToken.isEmpty()) {
                                 webView.setVisibility(View.GONE);
                                 fetchTaskList();
+                            } else {
+                                tvStatus.setText("Status: ndus OK, bdstoken missing");
                             }
                         });
                     }
@@ -188,8 +184,7 @@ public class MainActivity extends AppCompatActivity {
                 "\"" + tokenName + "\"\\s*:\\s*\"([^\"]+)\"",
                 tokenName + "\\s*=\\s*\"([^\"]+)\"",
                 "\"" + tokenName + "\"\\s*:\\s*'([^']+)'",
-                tokenName + "\\s*=\\s*'([^']+)'",
-                "\"" + tokenName + "\"\\s*:\\s*([a-zA-Z0-9]+)(?:[,}])"
+                tokenName + "\\s*=\\s*'([^']+)'"
         };
 
         for (String pattern : patterns) {
@@ -197,10 +192,7 @@ public class MainActivity extends AppCompatActivity {
                 Pattern p = Pattern.compile(pattern);
                 Matcher m = p.matcher(html);
                 if (m.find()) {
-                    String result = m.group(1);
-                    if (!result.isEmpty() && !result.equals("\"\"")) {
-                        return result;
-                    }
+                    return m.group(1);
                 }
             } catch (Exception e) { }
         }
@@ -233,16 +225,8 @@ public class MainActivity extends AppCompatActivity {
                     }
                     JSONObject json = new JSONObject(jsonStr);
                     String capturedJsToken = json.optString("jsToken", "");
-                    
                     if (!capturedJsToken.isEmpty()) {
                         jsToken = capturedJsToken;
-                        mainHandler.post(() -> {
-                            tvStatus.setText("Status: jsToken captured...");
-                            if (!ndus.isEmpty() && !bdstoken.isEmpty()) {
-                                webView.setVisibility(View.GONE);
-                                fetchTaskList();
-                            }
-                        });
                     }
                 } catch (Exception e) { }
             }
@@ -259,7 +243,7 @@ public class MainActivity extends AppCompatActivity {
 
     private void startRemoteUpload() {
         String url = etLink.getText().toString().trim();
-        if (ndus.isEmpty() || jsToken.isEmpty() || bdstoken.isEmpty()) {
+        if (ndus.isEmpty() || bdstoken.isEmpty()) {
             Toast.makeText(this, "Please login and wait for tokens", Toast.LENGTH_SHORT).show();
             return;
         }
@@ -272,13 +256,11 @@ public class MainActivity extends AppCompatActivity {
             try {
                 mainHandler.post(() -> tvStatus.setText("Status: Adding task..."));
                 String dpLogId = generateDpLogId();
+                // Ważne: dodajemy wszystkie parametry do URL
                 String apiUrl = "https://www.terabox.com/rest/2.0/services/cloud_dl?method=add_task"
                         + "&app_id=" + APP_ID 
-                        + "&web=1" 
-                        + "&channel=dubox" 
-                        + "&clienttype=0"
-                        + "&jsToken=" + jsToken
                         + "&bdstoken=" + bdstoken
+                        + "&jsToken=" + jsToken
                         + "&dp-logid=" + dpLogId;
 
                 FormBody formBody = new FormBody.Builder()
@@ -291,8 +273,6 @@ public class MainActivity extends AppCompatActivity {
                         .addHeader("Cookie", allCookies)
                         .addHeader("User-Agent", USER_AGENT)
                         .addHeader("Referer", "https://www.terabox.com/main")
-                        .addHeader("Origin", "https://www.terabox.com")
-                        .addHeader("X-Requested-With", "XMLHttpRequest")
                         .post(formBody)
                         .build();
 
@@ -308,10 +288,7 @@ public class MainActivity extends AppCompatActivity {
                             fetchTaskList();
                         });
                     } else {
-                        mainHandler.post(() -> {
-                            String msg = json.optString("errmsg", "Unknown error");
-                            tvStatus.setText("Error " + errno + ": " + msg);
-                        });
+                        mainHandler.post(() -> tvStatus.setText("Error " + errno + ": " + json.optString("errmsg", "Unknown")));
                     }
                 }
             } catch (Exception e) {
@@ -327,22 +304,15 @@ public class MainActivity extends AppCompatActivity {
                 String dpLogId = generateDpLogId();
                 String listUrl = "https://www.terabox.com/rest/2.0/services/cloud_dl?method=list_task"
                         + "&app_id=" + APP_ID 
-                        + "&web=1" 
-                        + "&channel=dubox" 
-                        + "&clienttype=0"
-                        + "&jsToken=" + jsToken
                         + "&bdstoken=" + bdstoken
+                        + "&jsToken=" + jsToken
                         + "&dp-logid=" + dpLogId
-                        + "&need_report=1"
-                        + "&num=100"
-                        + "&page=1";
+                        + "&need_report=1";
 
                 Request request = new Request.Builder()
                         .url(listUrl)
                         .addHeader("Cookie", allCookies)
                         .addHeader("User-Agent", USER_AGENT)
-                        .addHeader("Referer", "https://www.terabox.com/main")
-                        .addHeader("X-Requested-With", "XMLHttpRequest")
                         .get()
                         .build();
 
@@ -361,13 +331,7 @@ public class MainActivity extends AppCompatActivity {
                                 item.status = obj.optInt("status", -1);
                                 long finished = obj.optLong("finished_size", 0);
                                 long total = obj.optLong("file_size", 0);
-                                if (total > 0) {
-                                    item.progress = (int) ((finished * 100) / total);
-                                } else if (item.status == 0) {
-                                    item.progress = 100;
-                                } else {
-                                    item.progress = 0;
-                                }
+                                item.progress = (total > 0) ? (int) ((finished * 100) / total) : (item.status == 0 ? 100 : 0);
                                 newTasks.add(item);
                             }
                             mainHandler.post(() -> {
@@ -386,28 +350,20 @@ public class MainActivity extends AppCompatActivity {
         executor.execute(() -> {
             try {
                 String dpLogId = generateDpLogId();
+                // Zmiana na GET dla cancel_task, co często pomaga przy błędzie 400
                 String delUrl = "https://www.terabox.com/rest/2.0/services/cloud_dl?method=cancel_task"
                         + "&app_id=" + APP_ID 
-                        + "&web=1" 
-                        + "&channel=dubox" 
-                        + "&clienttype=0"
-                        + "&jsToken=" + jsToken
                         + "&bdstoken=" + bdstoken
-                        + "&dp-logid=" + dpLogId;
+                        + "&jsToken=" + jsToken
+                        + "&dp-logid=" + dpLogId
+                        + "&task_ids=" + taskId;
                 
-                // Serwer wymaga task_ids jako tablicy JSON w ciele POST
-                String taskIdsJson = "[\"" + taskId + "\"]";
-                FormBody formBody = new FormBody.Builder()
-                        .add("task_ids", taskIdsJson)
-                        .build();
-
                 Request request = new Request.Builder()
                         .url(delUrl)
                         .addHeader("Cookie", allCookies)
                         .addHeader("User-Agent", USER_AGENT)
                         .addHeader("Referer", "https://www.terabox.com/main")
-                        .addHeader("X-Requested-With", "XMLHttpRequest")
-                        .post(formBody)
+                        .get()
                         .build();
 
                 try (Response response = client.newCall(request).execute()) {
@@ -449,16 +405,7 @@ public class MainActivity extends AppCompatActivity {
             TaskItem item = items.get(position);
             holder.tvName.setText(item.name);
             holder.pbProgress.setProgress(item.progress);
-            
-            String statusStr;
-            switch(item.status) {
-                case 0: statusStr = "Success"; break;
-                case 1: statusStr = "Downloading"; break;
-                case 2: statusStr = "Waiting"; break;
-                case 3: statusStr = "Failed"; break;
-                default: statusStr = "Status: " + item.status;
-            }
-            
+            String statusStr = (item.status == 0 ? "Success" : (item.status == 1 ? "Downloading" : "Waiting"));
             holder.tvStatus.setText(statusStr + " (" + item.progress + "%)");
             holder.btnDelete.setOnClickListener(v -> deleteTask(item.id));
         }
