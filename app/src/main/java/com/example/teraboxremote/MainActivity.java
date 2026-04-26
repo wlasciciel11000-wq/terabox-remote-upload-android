@@ -281,8 +281,10 @@ public class MainActivity extends AppCompatActivity {
                     if (!lastPart.isEmpty()) fileName = lastPart;
                 }
 
-                // Terabox API often requires the block_list to be a JSON array string without spaces
-                String blockList = "[\"d41d8cd98f00b204e9800998ecf8427e\"]";
+                // Newest Terabox API requirements: full MD5 set and local_mtime
+                String dummyMd5 = "d41d8cd98f00b204e9800998ecf8427e";
+                String blockList = "[\"" + dummyMd5 + "\"]";
+                String currentTime = String.valueOf(System.currentTimeMillis() / 1000);
                 
                 MultipartBody precreateBody = new MultipartBody.Builder()
                         .setType(MultipartBody.FORM)
@@ -291,6 +293,9 @@ public class MainActivity extends AppCompatActivity {
                         .addFormDataPart("isdir", "0")
                         .addFormDataPart("autoinit", "1")
                         .addFormDataPart("block_list", blockList)
+                        .addFormDataPart("content-md5", dummyMd5)
+                        .addFormDataPart("slice-md5", dummyMd5)
+                        .addFormDataPart("local_mtime", currentTime)
                         .build();
 
                 Request precreateRequest = new Request.Builder()
@@ -370,9 +375,10 @@ public class MainActivity extends AppCompatActivity {
                         + "&jsToken=" + jsToken
                         + "&dp-logid=" + dpLogId;
 
-                // Re-adding rtype and target_path as they are often required in the 'create' phase
-                // and ensuring block_list is correctly formatted.
-                String blockList = "[\"d41d8cd98f00b204e9800998ecf8427e\"]";
+                // Re-adding full set of params for the 'create' phase
+                String dummyMd5 = "d41d8cd98f00b204e9800998ecf8427e";
+                String blockList = "[\"" + dummyMd5 + "\"]";
+                String currentTime = String.valueOf(System.currentTimeMillis() / 1000);
                 
                 MultipartBody createBody = new MultipartBody.Builder()
                         .setType(MultipartBody.FORM)
@@ -382,6 +388,9 @@ public class MainActivity extends AppCompatActivity {
                         .addFormDataPart("uploadid", uploadId)
                         .addFormDataPart("block_list", blockList)
                         .addFormDataPart("rtype", "1")
+                        .addFormDataPart("content-md5", dummyMd5)
+                        .addFormDataPart("slice-md5", dummyMd5)
+                        .addFormDataPart("local_mtime", currentTime)
                         .build();
 
                 Request request = new Request.Builder()
