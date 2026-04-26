@@ -286,7 +286,7 @@ public class MainActivity extends AppCompatActivity {
                         .add("target_path", "/")
                         .add("source_url", url)
                         .add("size", String.valueOf(fileSize))
-                        .add("block_list", "[]")
+                        .add("block_list", "[\"d41d8cd98f00b204e9800998ecf8427e\"]")
                         .build();
 
                 Request precreateRequest = new Request.Builder()
@@ -376,7 +376,7 @@ public class MainActivity extends AppCompatActivity {
                         .add("mtime", String.valueOf(currentTime))
                         .add("local_mtime", String.valueOf(currentTime))
                         .add("source_url", sourceUrl)
-                        .add("block_list", "[]")
+                        .add("block_list", "[\"d41d8cd98f00b204e9800998ecf8427e\"]")
                         .build();
 
                 Request request = new Request.Builder()
