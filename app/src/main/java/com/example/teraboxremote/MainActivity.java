@@ -257,11 +257,12 @@ public class MainActivity extends AppCompatActivity {
                 mainHandler.post(() -> tvStatus.setText("Status: Getting file size..."));
                 
                 // KROK 0: Pobranie rozmiaru pliku (kluczowe dla uniknięcia 0B)
-                long fileSize = getRemoteFileSize(url);
-                if (fileSize <= 0) {
+                long tempSize = getRemoteFileSize(url);
+                if (tempSize <= 0) {
                     // Jeśli nie udało się pobrać rozmiaru, spróbujemy z domyślną wartością
-                    fileSize = 1024 * 1024; // 1MB dummy
+                    tempSize = 1024 * 1024; // 1MB dummy
                 }
+                final long fileSize = tempSize;
 
                 mainHandler.post(() -> tvStatus.setText("Status: Adding task (Size: " + (fileSize/1024) + " KB)..."));
                 String dpLogId = generateDpLogId();
