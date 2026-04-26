@@ -281,13 +281,16 @@ public class MainActivity extends AppCompatActivity {
                     if (!lastPart.isEmpty()) fileName = lastPart;
                 }
 
+                // Terabox API often requires the block_list to be a JSON array string without spaces
+                String blockList = "[\"d41d8cd98f00b204e9800998ecf8427e\"]";
+                
                 MultipartBody precreateBody = new MultipartBody.Builder()
                         .setType(MultipartBody.FORM)
                         .addFormDataPart("path", "/" + fileName)
                         .addFormDataPart("size", String.valueOf(fileSize))
                         .addFormDataPart("isdir", "0")
                         .addFormDataPart("autoinit", "1")
-                        .addFormDataPart("block_list", "[\"d41d8cd98f00b204e9800998ecf8427e\"]")
+                        .addFormDataPart("block_list", blockList)
                         .build();
 
                 Request precreateRequest = new Request.Builder()
@@ -367,13 +370,18 @@ public class MainActivity extends AppCompatActivity {
                         + "&jsToken=" + jsToken
                         + "&dp-logid=" + dpLogId;
 
+                // Re-adding rtype and target_path as they are often required in the 'create' phase
+                // and ensuring block_list is correctly formatted.
+                String blockList = "[\"d41d8cd98f00b204e9800998ecf8427e\"]";
+                
                 MultipartBody createBody = new MultipartBody.Builder()
                         .setType(MultipartBody.FORM)
                         .addFormDataPart("path", "/" + fileName)
                         .addFormDataPart("size", String.valueOf(fileSize))
                         .addFormDataPart("isdir", "0")
                         .addFormDataPart("uploadid", uploadId)
-                        .addFormDataPart("block_list", "[\"d41d8cd98f00b204e9800998ecf8427e\"]")
+                        .addFormDataPart("block_list", blockList)
+                        .addFormDataPart("rtype", "1")
                         .build();
 
                 Request request = new Request.Builder()
