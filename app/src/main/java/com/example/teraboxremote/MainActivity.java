@@ -286,7 +286,6 @@ public class MainActivity extends AppCompatActivity {
                         .add("target_path", "/")
                         .add("source_url", url)
                         .add("size", String.valueOf(fileSize))
-                        .add("block_list", "[\"d41d8cd98f00b204e9800998ecf8427e\"]")
                         .build();
 
                 Request precreateRequest = new Request.Builder()
@@ -376,7 +375,6 @@ public class MainActivity extends AppCompatActivity {
                         .add("mtime", String.valueOf(currentTime))
                         .add("local_mtime", String.valueOf(currentTime))
                         .add("source_url", sourceUrl)
-                        .add("block_list", "[\"d41d8cd98f00b204e9800998ecf8427e\"]")
                         .build();
 
                 Request request = new Request.Builder()
@@ -390,10 +388,18 @@ public class MainActivity extends AppCompatActivity {
                         .build();
 
                 try (Response response = client.newCall(request).execute()) {
+                    String responseData = response.body() != null ? response.body().string() : "{}";
+                    JSONObject json = new JSONObject(responseData);
+                    int errno = json.optInt("errno", -1);
+                    
                     mainHandler.post(() -> {
-                        tvStatus.setText("Status: Task Finalized Successfully");
-                        etLink.setText("");
-                        fetchTaskList();
+                        if (errno == 0) {
+                            tvStatus.setText("Status: Task Finalized Successfully");
+                            etLink.setText("");
+                            fetchTaskList();
+                        } else {
+                            tvStatus.setText("Finalize Error: " + errno + " - " + json.optString("errmsg", "Unknown"));
+                        }
                     });
                 }
             } catch (Exception e) { }
