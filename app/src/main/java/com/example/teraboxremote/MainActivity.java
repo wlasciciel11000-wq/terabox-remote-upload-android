@@ -375,21 +375,19 @@ public class MainActivity extends AppCompatActivity {
                         + "&jsToken=" + jsToken
                         + "&dp-logid=" + dpLogId;
 
-                // Re-adding full set of params for the 'create' phase
-                String dummyMd5 = "d41d8cd98f00b204e9800998ecf8427e";
-                String blockList = "[\"" + dummyMd5 + "\"]";
+                // For Remote Upload, create phase often expects empty block_list
+                // and requires target_path.
                 String currentTime = String.valueOf(System.currentTimeMillis() / 1000);
                 
                 MultipartBody createBody = new MultipartBody.Builder()
                         .setType(MultipartBody.FORM)
                         .addFormDataPart("path", "/" + fileName)
+                        .addFormDataPart("target_path", "/")
                         .addFormDataPart("size", String.valueOf(fileSize))
                         .addFormDataPart("isdir", "0")
                         .addFormDataPart("uploadid", uploadId)
-                        .addFormDataPart("block_list", blockList)
+                        .addFormDataPart("block_list", "[]")
                         .addFormDataPart("rtype", "1")
-                        .addFormDataPart("content-md5", dummyMd5)
-                        .addFormDataPart("slice-md5", dummyMd5)
                         .addFormDataPart("local_mtime", currentTime)
                         .build();
 
