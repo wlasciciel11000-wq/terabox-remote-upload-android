@@ -36,6 +36,7 @@ import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
 import okhttp3.FormBody;
+import okhttp3.MultipartBody;
 import okhttp3.OkHttpClient;
 import okhttp3.Request;
 import okhttp3.Response;
@@ -280,15 +281,13 @@ public class MainActivity extends AppCompatActivity {
                     if (!lastPart.isEmpty()) fileName = lastPart;
                 }
 
-                long currentTime = System.currentTimeMillis() / 1000;
-                FormBody precreateBody = new FormBody.Builder()
-                        .add("path", "/" + fileName)
-                        .add("target_path", "/")
-                        .add("size", String.valueOf(fileSize))
-                        .add("isdir", "0")
-                        .add("autoinit", "1")
-                        .add("block_list", "[\"d41d8cd98f00b204e9800998ecf8427e\"]")
-                        .add("local_mtime", String.valueOf(currentTime))
+                MultipartBody precreateBody = new MultipartBody.Builder()
+                        .setType(MultipartBody.FORM)
+                        .addFormDataPart("path", "/" + fileName)
+                        .addFormDataPart("size", String.valueOf(fileSize))
+                        .addFormDataPart("isdir", "0")
+                        .addFormDataPart("autoinit", "1")
+                        .addFormDataPart("block_list", "[\"d41d8cd98f00b204e9800998ecf8427e\"]")
                         .build();
 
                 Request precreateRequest = new Request.Builder()
@@ -296,6 +295,7 @@ public class MainActivity extends AppCompatActivity {
                         .addHeader("Cookie", allCookies)
                         .addHeader("User-Agent", USER_AGENT)
                         .addHeader("Referer", "https://1024terabox.com/main")
+                        .addHeader("X-Requested-With", "XMLHttpRequest")
                         .post(precreateBody)
                         .build();
 
@@ -367,16 +367,13 @@ public class MainActivity extends AppCompatActivity {
                         + "&jsToken=" + jsToken
                         + "&dp-logid=" + dpLogId;
 
-                long currentTime = System.currentTimeMillis() / 1000;
-                FormBody createBody = new FormBody.Builder()
-                        .add("path", "/" + fileName)
-                        .add("target_path", "/")
-                        .add("size", String.valueOf(fileSize))
-                        .add("isdir", "0")
-                        .add("uploadid", uploadId)
-                        .add("block_list", "[\"d41d8cd98f00b204e9800998ecf8427e\"]")
-                        .add("rtype", "1")
-                        .add("local_mtime", String.valueOf(currentTime))
+                MultipartBody createBody = new MultipartBody.Builder()
+                        .setType(MultipartBody.FORM)
+                        .addFormDataPart("path", "/" + fileName)
+                        .addFormDataPart("size", String.valueOf(fileSize))
+                        .addFormDataPart("isdir", "0")
+                        .addFormDataPart("uploadid", uploadId)
+                        .addFormDataPart("block_list", "[\"d41d8cd98f00b204e9800998ecf8427e\"]")
                         .build();
 
                 Request request = new Request.Builder()
