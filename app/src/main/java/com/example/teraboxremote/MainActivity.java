@@ -316,20 +316,25 @@ public class MainActivity extends AppCompatActivity {
 
     private long getRemoteFileSize(String url) {
         try {
+            // Wiele serwerów blokuje zapytania bez User-Agent
             Request request = new Request.Builder()
                     .url(url)
-                    .head() // Najpierw próbujemy HEAD
+                    .addHeader("User-Agent", USER_AGENT)
+                    .head()
                     .build();
             try (Response response = client.newCall(request).execute()) {
                 if (response.isSuccessful()) {
                     String contentLength = response.header("Content-Length");
-                    if (contentLength != null) return Long.parseLong(contentLength);
+                    if (contentLength != null && !contentLength.isEmpty()) {
+                        return Long.parseLong(contentLength);
+                    }
                 }
             }
             
-            // Jeśli HEAD zawiedzie, próbujemy GET z limitem
+            // Fallback: GET z limitem bajtów
             Request getRequest = new Request.Builder()
                     .url(url)
+                    .addHeader("User-Agent", USER_AGENT)
                     .addHeader("Range", "bytes=0-1")
                     .get()
                     .build();
@@ -340,10 +345,14 @@ public class MainActivity extends AppCompatActivity {
                         return Long.parseLong(contentRange.substring(contentRange.lastIndexOf("/") + 1));
                     }
                     String contentLength = response.header("Content-Length");
-                    if (contentLength != null) return Long.parseLong(contentLength);
+                    if (contentLength != null && !contentLength.isEmpty()) {
+                        return Long.parseLong(contentLength);
+                    }
                 }
             }
-        } catch (Exception e) { }
+        } catch (Exception e) {
+            e.printStackTrace();
+        }
         return 0;
     }
 
@@ -372,6 +381,7 @@ public class MainActivity extends AppCompatActivity {
                         .addHeader("Cookie", allCookies)
                         .addHeader("User-Agent", USER_AGENT)
                         .addHeader("Referer", "https://www.1024terabox.com/main")
+                        .addHeader("Origin", "https://www.1024terabox.com")
                         .post(createBody)
                         .build();
 
