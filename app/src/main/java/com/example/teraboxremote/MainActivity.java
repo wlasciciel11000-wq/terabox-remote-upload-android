@@ -282,11 +282,11 @@ public class MainActivity extends AppCompatActivity {
 
                 FormBody precreateBody = new FormBody.Builder()
                         .add("path", "/" + fileName)
+                        .add("target_path", "/")
                         .add("size", String.valueOf(fileSize))
                         .add("isdir", "0")
                         .add("autoinit", "1")
                         .add("block_list", "[\"d41d8cd98f00b204e9800998ecf8427e\"]")
-                        .add("method", "post")
                         .build();
 
                 Request precreateRequest = new Request.Builder()
@@ -367,6 +367,7 @@ public class MainActivity extends AppCompatActivity {
 
                 FormBody createBody = new FormBody.Builder()
                         .add("path", "/" + fileName)
+                        .add("target_path", "/")
                         .add("size", String.valueOf(fileSize))
                         .add("isdir", "0")
                         .add("uploadid", uploadId)
