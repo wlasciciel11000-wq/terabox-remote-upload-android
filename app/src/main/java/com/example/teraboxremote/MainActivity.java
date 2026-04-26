@@ -370,26 +370,20 @@ public class MainActivity extends AppCompatActivity {
         executor.execute(() -> {
             try {
                 String dpLogId = generateDpLogId();
+                // Final attempt: Move all parameters to Query String (URL) 
+                // and use an empty FormBody as required by some Terabox API versions
+                String currentTime = String.valueOf(System.currentTimeMillis() / 1000);
                 String createUrl = "https://1024terabox.com/api/create?app_id=" + APP_ID 
                         + "&web=1&channel=dubox&clienttype=0"
                         + "&jsToken=" + jsToken
-                        + "&dp-logid=" + dpLogId;
-
-                // For Remote Upload, create phase often expects empty block_list
-                // and requires target_path.
-                String currentTime = String.valueOf(System.currentTimeMillis() / 1000);
-                
-                MultipartBody createBody = new MultipartBody.Builder()
-                        .setType(MultipartBody.FORM)
-                        .addFormDataPart("path", "/" + fileName)
-                        .addFormDataPart("target_path", "/")
-                        .addFormDataPart("size", String.valueOf(fileSize))
-                        .addFormDataPart("isdir", "0")
-                        .addFormDataPart("uploadid", uploadId)
-                        .addFormDataPart("block_list", "[]")
-                        .addFormDataPart("rtype", "1")
-                        .addFormDataPart("local_mtime", currentTime)
-                        .build();
+                        + "&dp-logid=" + dpLogId
+                        + "&path=" + java.net.URLEncoder.encode("/" + fileName, "UTF-8")
+                        + "&size=" + fileSize
+                        + "&isdir=0"
+                        + "&uploadid=" + uploadId
+                        + "&block_list=" + java.net.URLEncoder.encode("[\"d41d8cd98f00b204e9800998ecf8427e\"]", "UTF-8")
+                        + "&rtype=1"
+                        + "&local_mtime=" + currentTime;
 
                 Request request = new Request.Builder()
                         .url(createUrl)
@@ -398,7 +392,7 @@ public class MainActivity extends AppCompatActivity {
                         .addHeader("Referer", "https://1024terabox.com/main")
                         .addHeader("Origin", "https://1024terabox.com")
                         .addHeader("X-Requested-With", "XMLHttpRequest")
-                        .post(createBody)
+                        .post(new FormBody.Builder().build()) // Empty body
                         .build();
 
                 try (Response response = client.newCall(request).execute()) {
