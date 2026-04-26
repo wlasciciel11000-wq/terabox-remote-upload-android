@@ -282,11 +282,11 @@ public class MainActivity extends AppCompatActivity {
 
                 FormBody precreateBody = new FormBody.Builder()
                         .add("path", "/" + fileName)
-                        .add("autoinit", "1")
-                        .add("target_path", "/")
-                        .add("source_url", url)
                         .add("size", String.valueOf(fileSize))
+                        .add("isdir", "0")
+                        .add("autoinit", "1")
                         .add("block_list", "[\"d41d8cd98f00b204e9800998ecf8427e\"]")
+                        .add("method", "post")
                         .build();
 
                 Request precreateRequest = new Request.Builder()
@@ -368,14 +368,9 @@ public class MainActivity extends AppCompatActivity {
                 long currentTime = System.currentTimeMillis() / 1000;
                 FormBody createBody = new FormBody.Builder()
                         .add("path", "/" + fileName)
-                        .add("uploadid", uploadId)
-                        .add("target_path", "/")
                         .add("size", String.valueOf(fileSize))
                         .add("isdir", "0")
-                        .add("rtype", "1")
-                        .add("mtime", String.valueOf(currentTime))
-                        .add("local_mtime", String.valueOf(currentTime))
-                        .add("source_url", sourceUrl)
+                        .add("uploadid", uploadId)
                         .add("block_list", "[\"d41d8cd98f00b204e9800998ecf8427e\"]")
                         .build();
 
