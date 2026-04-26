@@ -90,7 +90,7 @@ public class MainActivity extends AppCompatActivity {
 
         btnLogin.setOnClickListener(v -> {
             webView.setVisibility(View.VISIBLE);
-            webView.loadUrl("https://www.terabox.com/main");
+            webView.loadUrl("https://www.1024terabox.com/main");
         });
 
         btnStart.setOnClickListener(v -> startRemoteUpload());
@@ -99,7 +99,7 @@ public class MainActivity extends AppCompatActivity {
 
     @SuppressLint({"SetJavaScriptEnabled", "ClickableViewAccessibility"})
     private void setupWebView() {
-        WebSettings webSettings = webView.getSettings();
+        WebSettings webSettings = webSettings = webView.getSettings();
         webSettings.setJavaScriptEnabled(true);
         webSettings.setDomStorageEnabled(true);
         webSettings.setSupportZoom(true);
@@ -148,7 +148,7 @@ public class MainActivity extends AppCompatActivity {
         executor.execute(() -> {
             try {
                 Request request = new Request.Builder()
-                        .url("https://www.terabox.com/main")
+                        .url("https://www.1024terabox.com/main")
                         .addHeader("Cookie", allCookies)
                         .addHeader("User-Agent", USER_AGENT)
                         .get()
@@ -263,19 +263,19 @@ public class MainActivity extends AppCompatActivity {
                         + "&jsToken=" + jsToken
                         + "&dp-logid=" + dpLogId;
 
-                String fileName = "remote_" + System.currentTimeMillis() + ".txt";
+                String fileName = "remote_" + System.currentTimeMillis();
                 if (url.contains("/")) {
                     String lastPart = url.substring(url.lastIndexOf("/") + 1);
                     if (lastPart.contains("?")) lastPart = lastPart.substring(0, lastPart.indexOf("?"));
                     if (!lastPart.isEmpty()) fileName = lastPart;
                 }
 
+                // FIX: Dla Remote Upload w precreate NIE podajemy size=0 ani block_list.
+                // Zamiast tego przekazujemy source_url, aby serwer wiedział skąd pobrać dane.
                 FormBody precreateBody = new FormBody.Builder()
                         .add("path", "/" + fileName)
                         .add("autoinit", "1")
                         .add("target_path", "/")
-                        .add("block_list", "[\"d41d8cd98f00b204e9800998ecf8427e\"]")
-                        .add("size", "0")
                         .add("source_url", url)
                         .build();
 
@@ -283,7 +283,7 @@ public class MainActivity extends AppCompatActivity {
                         .url(precreateUrl)
                         .addHeader("Cookie", allCookies)
                         .addHeader("User-Agent", USER_AGENT)
-                        .addHeader("Referer", "https://www.terabox.com/main")
+                        .addHeader("Referer", "https://www.1024terabox.com/main")
                         .post(precreateBody)
                         .build();
 
@@ -296,8 +296,8 @@ public class MainActivity extends AppCompatActivity {
                         // KROK 2: Create (Finalizacja)
                         finalizeUpload(fileName, json.optString("uploadid", ""), url);
                     } else {
-                        // Fallback do starej metody
-                        fallbackAddTask(url);
+                        // Fallback do metody add_task jeśli precreate zawiedzie
+                        fallbackAddTask(url, fileName);
                     }
                 }
             } catch (Exception e) {
@@ -315,12 +315,11 @@ public class MainActivity extends AppCompatActivity {
                         + "&jsToken=" + jsToken
                         + "&dp-logid=" + dpLogId;
 
+                // FIX: W create również przekazujemy source_url i NIE wymuszamy size=0.
                 FormBody createBody = new FormBody.Builder()
                         .add("path", "/" + fileName)
-                        .add("size", "0")
                         .add("uploadid", uploadId)
                         .add("target_path", "/")
-                        .add("block_list", "[\"d41d8cd98f00b204e9800998ecf8427e\"]")
                         .add("isdir", "0")
                         .add("rtype", "1")
                         .add("source_url", sourceUrl)
@@ -330,6 +329,7 @@ public class MainActivity extends AppCompatActivity {
                         .url(createUrl)
                         .addHeader("Cookie", allCookies)
                         .addHeader("User-Agent", USER_AGENT)
+                        .addHeader("Referer", "https://www.1024terabox.com/main")
                         .post(createBody)
                         .build();
 
@@ -344,11 +344,11 @@ public class MainActivity extends AppCompatActivity {
         });
     }
 
-    private void fallbackAddTask(String url) {
+    private void fallbackAddTask(String url, String fileName) {
         executor.execute(() -> {
             try {
                 String dpLogId = generateDpLogId();
-                String apiUrl = "https://www.terabox.com/rest/2.0/services/cloud_dl?method=add_task"
+                String apiUrl = "https://www.1024terabox.com/rest/2.0/services/cloud_dl?method=add_task"
                         + "&app_id=" + APP_ID 
                         + "&bdstoken=" + bdstoken
                         + "&jsToken=" + jsToken
@@ -356,13 +356,14 @@ public class MainActivity extends AppCompatActivity {
 
                 FormBody formBody = new FormBody.Builder()
                         .add("source_url", url)
-                        .add("save_path", "/")
+                        .add("save_path", "/" + fileName)
                         .build();
 
                 Request request = new Request.Builder()
                         .url(apiUrl)
                         .addHeader("Cookie", allCookies)
                         .addHeader("User-Agent", USER_AGENT)
+                        .addHeader("Referer", "https://www.1024terabox.com/main")
                         .post(formBody)
                         .build();
 
@@ -388,6 +389,7 @@ public class MainActivity extends AppCompatActivity {
         executor.execute(() -> {
             try {
                 String dpLogId = generateDpLogId();
+                // Próbujemy pobrać listę plików
                 String listUrl = "https://www.1024terabox.com/api/list?app_id=" + APP_ID 
                         + "&web=1&channel=dubox&clienttype=0"
                         + "&jsToken=" + jsToken
@@ -398,6 +400,7 @@ public class MainActivity extends AppCompatActivity {
                         .url(listUrl)
                         .addHeader("Cookie", allCookies)
                         .addHeader("User-Agent", USER_AGENT)
+                        .addHeader("Referer", "https://www.1024terabox.com/main")
                         .get()
                         .build();
 
@@ -438,7 +441,7 @@ public class MainActivity extends AppCompatActivity {
                         + "&jsToken=" + jsToken
                         + "&dp-logid=" + dpLogId;
                 
-                String fileListJson = "[" + taskId + "]";
+                String fileListJson = "[\"" + taskId + "\"]";
                 FormBody formBody = new FormBody.Builder()
                         .add("filelist", fileListJson)
                         .build();
@@ -447,6 +450,7 @@ public class MainActivity extends AppCompatActivity {
                         .url(delUrl)
                         .addHeader("Cookie", allCookies)
                         .addHeader("User-Agent", USER_AGENT)
+                        .addHeader("Referer", "https://www.1024terabox.com/main")
                         .post(formBody)
                         .build();
 
@@ -456,8 +460,6 @@ public class MainActivity extends AppCompatActivity {
                             Toast.makeText(MainActivity.this, "Item deleted", Toast.LENGTH_SHORT).show();
                             fetchTaskList();
                         });
-                    } else {
-                        mainHandler.post(() -> Toast.makeText(MainActivity.this, "Delete failed: " + response.code(), Toast.LENGTH_SHORT).show());
                     }
                 }
             } catch (Exception e) {
