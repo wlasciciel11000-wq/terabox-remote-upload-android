@@ -252,75 +252,18 @@ public class MainActivity extends AppCompatActivity {
             return;
         }
 
-        executor.execute(() -> {
-            try {
-                mainHandler.post(() -> tvStatus.setText("Status: Getting file size..."));
-                
-                long tempSize = getRemoteFileSize(url);
-                if (tempSize <= 0) {
-                    tempSize = 1024 * 1024; // 1MB dummy
-                }
-                final long fileSize = tempSize;
-
-                mainHandler.post(() -> tvStatus.setText("Status: Adding task (Size: " + (fileSize/1024) + " KB)..."));
-                String dpLogId = generateDpLogId();
-                
-                String precreateUrl = "https://www.1024terabox.com/api/precreate?app_id=" + APP_ID 
-                        + "&web=1&channel=dubox&clienttype=0"
-                        + "&jsToken=" + jsToken
-                        + "&bdstoken=" + bdstoken
-                        + "&dp-logid=" + dpLogId;
-
-                FormBody formBody = new FormBody.Builder()
-                        .add("path", "/RemoteUpload_" + System.currentTimeMillis() + ".dat")
-                        .add("size", String.valueOf(fileSize))
-                        .add("isdir", "0")
-                        .add("auto_rename", "1")
-                        .add("rtype", "1")
-                        .build();
-
-                Request request = new Request.Builder()
-                        .url(precreateUrl)
-                        .addHeader("Cookie", allCookies)
-                        .addHeader("User-Agent", USER_AGENT)
-                        .post(formBody)
-                        .build();
-
-                try (Response response = client.newCall(request).execute()) {
-                    if (response.isSuccessful() && response.body() != null) {
-                        String responseData = response.body().string();
-                        JSONObject json = new JSONObject(responseData);
-                        if (json.optInt("errno") == 0) {
-                            String uploadid = json.getString("uploadid");
-                            addOfflineTask(url, uploadid);
-                        } else {
-                            mainHandler.post(() -> tvStatus.setText("Precreate Error: " + responseData));
-                        }
-                    }
-                }
-            } catch (Exception e) {
-                e.printStackTrace();
-            }
-        });
+        // For Remote Upload (Offline Add), we don't need precreate. 
+        // Precreate is for uploading local files.
+        addOfflineTask(url);
     }
 
-    private long getRemoteFileSize(String url) {
-        try {
-            Request request = new Request.Builder().url(url).head().build();
-            try (Response response = client.newCall(request).execute()) {
-                if (response.isSuccessful()) {
-                    String cl = response.header("Content-Length");
-                    if (cl != null) return Long.parseLong(cl);
-                }
-            }
-        } catch (Exception e) { }
-        return -1;
-    }
-
-    private void addOfflineTask(String sourceUrl, String uploadid) {
+    private void addOfflineTask(String sourceUrl) {
         executor.execute(() -> {
             try {
+                mainHandler.post(() -> tvStatus.setText("Status: Adding remote task..."));
                 String dpLogId = generateDpLogId();
+                
+                // Use 1024terabox.com or terabox.com consistently
                 String offlineUrl = "https://www.1024terabox.com/api/offline/add?app_id=" + APP_ID 
                         + "&web=1&channel=dubox&clienttype=0"
                         + "&jsToken=" + jsToken
@@ -336,18 +279,30 @@ public class MainActivity extends AppCompatActivity {
                         .url(offlineUrl)
                         .addHeader("Cookie", allCookies)
                         .addHeader("User-Agent", USER_AGENT)
+                        .addHeader("Referer", "https://www.1024terabox.com/main")
                         .post(formBody)
                         .build();
 
                 try (Response response = client.newCall(request).execute()) {
                     String responseData = response.body() != null ? response.body().string() : "";
                     mainHandler.post(() -> {
-                        tvStatus.setText("Status: Task added! " + responseData);
+                        try {
+                            JSONObject json = new JSONObject(responseData);
+                            int errno = json.optInt("errno", -1);
+                            if (errno == 0) {
+                                tvStatus.setText("Status: Task added successfully!");
+                                Toast.makeText(MainActivity.this, "Task added!", Toast.LENGTH_SHORT).show();
+                            } else {
+                                tvStatus.setText("Add Error (" + errno + "): " + responseData);
+                            }
+                        } catch (Exception e) {
+                            tvStatus.setText("Response: " + responseData);
+                        }
                         fetchTaskList();
                     });
                 }
             } catch (Exception e) {
-                e.printStackTrace();
+                mainHandler.post(() -> tvStatus.setText("Exception: " + e.getMessage()));
             }
         });
     }
@@ -410,7 +365,8 @@ public class MainActivity extends AppCompatActivity {
                 
                 String dpLogId = generateDpLogId();
                 
-                // TeraBox requires task_ids to be a JSON array string and passed in Query Params
+                // TeraBox requires task_ids to be a JSON array string
+                // Important: It must be URL encoded if passed in query
                 String taskIdsJson = "[\"" + taskId + "\"]";
                 
                 String delUrl = "https://www.1024terabox.com/api/offline/delete"
@@ -421,15 +377,13 @@ public class MainActivity extends AppCompatActivity {
                         + "&jsToken=" + jsToken
                         + "&bdstoken=" + bdstoken
                         + "&dp-logid=" + dpLogId
-                        + "&task_ids=" + taskIdsJson;
+                        + "&task_ids=" + java.net.URLEncoder.encode(taskIdsJson, "UTF-8");
 
                 Request request = new Request.Builder()
                         .url(delUrl)
                         .addHeader("Cookie", allCookies)
                         .addHeader("User-Agent", USER_AGENT)
-                        .addHeader("Referer", "https://www.terabox.com/main")
-                        .addHeader("Origin", "https://www.terabox.com")
-                        .addHeader("X-Requested-With", "XMLHttpRequest")
+                        .addHeader("Referer", "https://www.1024terabox.com/main")
                         .post(new FormBody.Builder().build()) // Empty POST body
                         .build();
 
@@ -439,38 +393,25 @@ public class MainActivity extends AppCompatActivity {
                     try {
                         JSONObject json = new JSONObject(responseData);
                         int errno = json.optInt("errno", -1);
-                        String errmsg = json.optString("errmsg", "Unknown error");
                         
                         if (errno == 0) {
                             mainHandler.post(() -> {
-                                Toast.makeText(MainActivity.this, "Task deleted successfully", Toast.LENGTH_SHORT).show();
+                                Toast.makeText(MainActivity.this, "Task deleted", Toast.LENGTH_SHORT).show();
                                 tvStatus.setText("Status: Task deleted");
                                 fetchTaskList();
                             });
                         } else {
                             mainHandler.post(() -> {
-                                String msg = "Error " + errno + ": " + errmsg;
-                                tvStatus.setText(msg);
-                                Toast.makeText(MainActivity.this, msg, Toast.LENGTH_LONG).show();
-                                android.util.Log.e("TeraBox", "Delete Task Error: " + responseData);
+                                tvStatus.setText("Delete Error (" + errno + "): " + responseData);
+                                Toast.makeText(MainActivity.this, "Delete failed", Toast.LENGTH_SHORT).show();
                             });
                         }
                     } catch (Exception jsonError) {
-                        mainHandler.post(() -> {
-                            String msg = "Invalid response: " + responseData;
-                            tvStatus.setText(msg);
-                            Toast.makeText(MainActivity.this, msg, Toast.LENGTH_LONG).show();
-                            android.util.Log.e("TeraBox", "Delete Task Response Error: " + responseData);
-                        });
+                        mainHandler.post(() -> tvStatus.setText("Invalid response: " + responseData));
                     }
                 }
             } catch (Exception e) {
-                mainHandler.post(() -> {
-                    String msg = "Exception: " + e.getMessage();
-                    tvStatus.setText(msg);
-                    Toast.makeText(MainActivity.this, msg, Toast.LENGTH_SHORT).show();
-                    android.util.Log.e("TeraBox", "Delete Task Exception", e);
-                });
+                mainHandler.post(() -> tvStatus.setText("Exception: " + e.getMessage()));
             }
         });
     }
