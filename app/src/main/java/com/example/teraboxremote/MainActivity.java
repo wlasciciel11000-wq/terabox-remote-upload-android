@@ -261,16 +261,18 @@ public class MainActivity extends AppCompatActivity {
                 mainHandler.post(() -> tvStatus.setText("Status: Adding remote task..."));
                 String dpLogId = generateDpLogId();
                 
-                // REST API endpoint often more stable for 405 issues
+                // Fixed: Added bdstoken and rtype=1 to the URL parameters
                 String offlineUrl = "https://www.1024terabox.com/rest/2.0/services/cloud_dl?method=add_task"
                         + "&app_id=" + APP_ID 
                         + "&web=1&channel=dubox&clienttype=5"
                         + "&jsToken=" + jsToken
+                        + "&bdstoken=" + bdstoken
                         + "&dp-logid=" + dpLogId;
 
                 FormBody formBody = new FormBody.Builder()
                         .add("source_url", sourceUrl)
                         .add("save_path", "/")
+                        .add("rtype", "1") // Remote type
                         .build();
 
                 Request request = new Request.Builder()
@@ -316,6 +318,7 @@ public class MainActivity extends AppCompatActivity {
                         + "&app_id=" + APP_ID 
                         + "&web=1&channel=dubox&clienttype=5"
                         + "&jsToken=" + jsToken
+                        + "&bdstoken=" + bdstoken
                         + "&dp-logid=" + dpLogId
                         + "&need_report=1"
                         + "&num=100"
@@ -372,6 +375,7 @@ public class MainActivity extends AppCompatActivity {
                         + "&channel=dubox" 
                         + "&clienttype=5"
                         + "&jsToken=" + jsToken
+                        + "&bdstoken=" + bdstoken
                         + "&dp-logid=" + dpLogId
                         + "&task_ids=[\"" + taskId + "\"]";
 
