@@ -181,10 +181,10 @@ public class MainActivity extends AppCompatActivity {
 
     private String extractTokenFromHtml(String html, String tokenName) {
         String[] patterns = {
-                "\"" + tokenName + "\"\s*:\s*\"([^\"]+)\"",
-                tokenName + "\s*=\s*\"([^\"]+)\"",
-                "\"" + tokenName + "\"\s*:\s*'([^']+)'",
-                tokenName + "\s*=\s*'([^']+)'"
+                "\"" + tokenName + "\"\\s*:\\s*\"([^\"]+)\"",
+                tokenName + "\\s*=\\s*\"([^\"]+)\"",
+                "\"" + tokenName + "\"\\s*:\\s*'([^']+)'",
+                tokenName + "\\s*=\\s*'([^']+)'"
         };
 
         for (String pattern : patterns) {
@@ -208,7 +208,7 @@ public class MainActivity extends AppCompatActivity {
                 "    var scripts = document.getElementsByTagName('script'); " +
                 "    for (var i = 0; i < scripts.length; i++) { " +
                 "      var content = scripts[i].innerHTML; " +
-                "      var m1 = content.match(/jsToken\\s*[:=]\\s*[\"']([^\"']+)[\"']/); " +
+                "      var m1 = content.match(/jsToken\\\\s*[:=]\\\\s*[\"']([^\"']+)[\"']/); " +
                 "      if (m1) { result.jsToken = m1[1]; break; } " +
                 "    } " +
                 "  } " +
@@ -221,7 +221,7 @@ public class MainActivity extends AppCompatActivity {
                 try {
                     String jsonStr = value;
                     if (value.startsWith("\"") && value.endsWith("\"")) {
-                        jsonStr = value.substring(1, value.length() - 1).replace("\\\"", "\"");
+                        jsonStr = value.substring(1, value.length() - 1).replace("\\\\\"", "\"");
                     }
                     JSONObject json = new JSONObject(jsonStr);
                     String capturedJsToken = json.optString("jsToken", "");
@@ -313,6 +313,7 @@ public class MainActivity extends AppCompatActivity {
                         + "&jsToken=" + jsToken
                         + "&dp-logid=" + dpLogId;
 
+                // Kluczowe: dodajemy source_url i rtype=1 aby wymusić pobieranie zdalne
                 FormBody createBody = new FormBody.Builder()
                         .add("path", "/" + fileName)
                         .add("size", "0")
