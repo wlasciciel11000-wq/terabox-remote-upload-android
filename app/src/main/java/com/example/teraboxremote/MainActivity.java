@@ -444,31 +444,71 @@ public class MainActivity extends AppCompatActivity {
     private void deleteTask(String taskId) {
         executor.execute(() -> {
             try {
-                String dpLogId = generateDpLogId();
-                String delUrl = "https://www.1024terabox.com/rest/2.0/services/cloud_dl?method=cancel_task"
-                        + "&app_id=" + APP_ID 
-                        + "&jsToken=" + jsToken
-                        + "&dp-logid=" + dpLogId
-                        + "&task_id=" + taskId;
+                mainHandler.post(() -> tvStatus.setText("Status: Deleting task..."));
                 
+                String dpLogId = generateDpLogId();
+                String delUrl = "https://www.terabox.com/rest/2.0/services/cloud_dl?method=cancel_task"
+                        + "&app_id=" + APP_ID 
+                        + "&web=1" 
+                        + "&channel=dubox" 
+                        + "&clienttype=0"
+                        + "&jsToken=" + jsToken
+                        + "&bdstoken=" + bdstoken
+                        + "&dp-logid=" + dpLogId;
+                
+                FormBody formBody = new FormBody.Builder()
+                        .add("task_ids", taskId)
+                        .build();
+
                 Request request = new Request.Builder()
                         .url(delUrl)
                         .addHeader("Cookie", allCookies)
                         .addHeader("User-Agent", USER_AGENT)
-                        .addHeader("Referer", "https://www.1024terabox.com/main")
-                        .get()
+                        .addHeader("Referer", "https://www.terabox.com/main")
+                        .addHeader("Origin", "https://www.terabox.com")
+                        .addHeader("X-Requested-With", "XMLHttpRequest")
+                        .addHeader("Content-Type", "application/x-www-form-urlencoded")
+                        .post(formBody)
                         .build();
 
                 try (Response response = client.newCall(request).execute()) {
-                    if (response.isSuccessful()) {
+                    String responseData = response.body() != null ? response.body().string() : "No data";
+                    
+                    try {
+                        JSONObject json = new JSONObject(responseData);
+                        int errno = json.optInt("errno", -1);
+                        String errmsg = json.optString("errmsg", "Unknown error");
+                        
+                        if (errno == 0) {
+                            mainHandler.post(() -> {
+                                Toast.makeText(MainActivity.this, "Task deleted successfully", Toast.LENGTH_SHORT).show();
+                                tvStatus.setText("Status: Task deleted");
+                                fetchTaskList();
+                            });
+                        } else {
+                            mainHandler.post(() -> {
+                                String msg = "Error " + errno + ": " + errmsg;
+                                tvStatus.setText(msg);
+                                Toast.makeText(MainActivity.this, msg, Toast.LENGTH_LONG).show();
+                                android.util.Log.e("TeraBox", "Delete Task Error: " + responseData);
+                            });
+                        }
+                    } catch (Exception jsonError) {
                         mainHandler.post(() -> {
-                            Toast.makeText(MainActivity.this, "Task cancelled", Toast.LENGTH_SHORT).show();
-                            fetchTaskList();
+                            String msg = "Invalid response: " + responseData;
+                            tvStatus.setText(msg);
+                            Toast.makeText(MainActivity.this, msg, Toast.LENGTH_LONG).show();
+                            android.util.Log.e("TeraBox", "Delete Task Response Error: " + responseData);
                         });
                     }
                 }
             } catch (Exception e) {
-                mainHandler.post(() -> Toast.makeText(MainActivity.this, "Error: " + e.getMessage(), Toast.LENGTH_SHORT).show());
+                mainHandler.post(() -> {
+                    String msg = "Exception: " + e.getMessage();
+                    tvStatus.setText(msg);
+                    Toast.makeText(MainActivity.this, msg, Toast.LENGTH_SHORT).show();
+                    android.util.Log.e("TeraBox", "Delete Task Exception", e);
+                });
             }
         });
     }
