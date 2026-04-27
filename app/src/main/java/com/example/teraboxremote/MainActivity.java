@@ -99,7 +99,7 @@ public class MainActivity extends AppCompatActivity {
 
     @SuppressLint({"SetJavaScriptEnabled", "ClickableViewAccessibility"})
     private void setupWebView() {
-        WebSettings webSettings = webView.getSettings();
+        WebSettings webSettings = webSettings = webView.getSettings();
         webSettings.setJavaScriptEnabled(true);
         webSettings.setDomStorageEnabled(true);
         webSettings.setSupportZoom(true);
@@ -294,7 +294,7 @@ public class MainActivity extends AppCompatActivity {
                     if (errno == 0) {
                         finalizeUpload(fileName, json.optString("uploadid", ""), url);
                     } else {
-                        mainHandler.post(() -> tvStatus.setText("Precreate Error " + errno + ": " + responseData));
+                        // Fallback do add_task
                         fallbackAddTask(url);
                     }
                 }
@@ -313,7 +313,6 @@ public class MainActivity extends AppCompatActivity {
                         + "&jsToken=" + jsToken
                         + "&dp-logid=" + dpLogId;
 
-                // Kluczowe: dodajemy source_url i rtype=1 aby wymusić pobieranie zdalne
                 FormBody createBody = new FormBody.Builder()
                         .add("path", "/" + fileName)
                         .add("size", "0")
@@ -379,9 +378,13 @@ public class MainActivity extends AppCompatActivity {
                     String responseData = response.body() != null ? response.body().string() : "{}";
                     JSONObject json = new JSONObject(responseData);
                     int errno = json.optInt("errno", -1);
+                    String taskId = json.optString("task_id", "");
+
                     mainHandler.post(() -> {
-                        if (errno == 0) {
-                            tvStatus.setText("Status: Task Added (Fallback)");
+                        // KLUCZOWE: Jeśli mamy task_id, to sukces, nawet przy errno -1
+                        if (errno == 0 || !taskId.isEmpty()) {
+                            tvStatus.setText("Status: Task Added (ID: " + taskId + ")");
+                            etLink.setText("");
                             fetchTaskList();
                         } else {
                             tvStatus.setText("Fallback Error " + errno + ": " + responseData);
@@ -397,11 +400,13 @@ public class MainActivity extends AppCompatActivity {
         executor.execute(() -> {
             try {
                 String dpLogId = generateDpLogId();
-                String listUrl = "https://www.1024terabox.com/api/list?app_id=" + APP_ID 
-                        + "&web=1&channel=dubox&clienttype=0"
+                // Pobieramy listę zadań (offline download) zamiast listy plików
+                String listUrl = "https://www.terabox.com/rest/2.0/services/cloud_dl?method=list_task"
+                        + "&app_id=" + APP_ID 
+                        + "&bdstoken=" + bdstoken
                         + "&jsToken=" + jsToken
                         + "&dp-logid=" + dpLogId
-                        + "&dir=%2F&num=100&page=1";
+                        + "&need_report=1";
 
                 Request request = new Request.Builder()
                         .url(listUrl)
@@ -414,16 +419,18 @@ public class MainActivity extends AppCompatActivity {
                     if (response.isSuccessful() && response.body() != null) {
                         String data = response.body().string();
                         JSONObject json = new JSONObject(data);
-                        if (json.has("list")) {
-                            JSONArray array = json.getJSONArray("list");
+                        if (json.has("task_info")) {
+                            JSONArray array = json.getJSONArray("task_info");
                             List<TaskItem> newTasks = new ArrayList<>();
                             for (int i = 0; i < array.length(); i++) {
                                 JSONObject obj = array.getJSONObject(i);
                                 TaskItem item = new TaskItem();
-                                item.id = obj.optString("fs_id", obj.optString("task_id", "0"));
-                                item.name = obj.optString("server_filename", obj.optString("task_name", "Unknown"));
-                                item.status = obj.optInt("status", 0);
-                                item.progress = 100;
+                                item.id = obj.getString("task_id");
+                                item.name = obj.optString("task_name", "Unknown Task");
+                                item.status = obj.optInt("status", -1);
+                                long finished = obj.optLong("finished_size", 0);
+                                long total = obj.optLong("file_size", 0);
+                                item.progress = (total > 0) ? (int) ((finished * 100) / total) : (item.status == 0 ? 100 : 0);
                                 newTasks.add(item);
                             }
                             mainHandler.post(() -> {
@@ -442,32 +449,28 @@ public class MainActivity extends AppCompatActivity {
         executor.execute(() -> {
             try {
                 String dpLogId = generateDpLogId();
-                String delUrl = "https://www.1024terabox.com/api/filemanager?opera=delete"
+                String delUrl = "https://www.terabox.com/rest/2.0/services/cloud_dl?method=cancel_task"
                         + "&app_id=" + APP_ID 
+                        + "&bdstoken=" + bdstoken
                         + "&jsToken=" + jsToken
-                        + "&dp-logid=" + dpLogId;
+                        + "&dp-logid=" + dpLogId
+                        + "&task_ids=" + taskId;
                 
-                String fileListJson = "[" + taskId + "]";
-                FormBody formBody = new FormBody.Builder()
-                        .add("filelist", fileListJson)
-                        .build();
-
                 Request request = new Request.Builder()
                         .url(delUrl)
                         .addHeader("Cookie", allCookies)
                         .addHeader("User-Agent", USER_AGENT)
-                        .post(formBody)
+                        .get()
                         .build();
 
                 try (Response response = client.newCall(request).execute()) {
-                    String responseData = response.body() != null ? response.body().string() : "{}";
                     if (response.isSuccessful()) {
                         mainHandler.post(() -> {
-                            Toast.makeText(MainActivity.this, "Item deleted", Toast.LENGTH_SHORT).show();
+                            Toast.makeText(MainActivity.this, "Task cancelled", Toast.LENGTH_SHORT).show();
                             fetchTaskList();
                         });
                     } else {
-                        mainHandler.post(() -> tvStatus.setText("Delete Error " + response.code() + ": " + responseData));
+                        mainHandler.post(() -> Toast.makeText(MainActivity.this, "Delete failed: " + response.code(), Toast.LENGTH_SHORT).show());
                     }
                 }
             } catch (Exception e) {
@@ -499,7 +502,8 @@ public class MainActivity extends AppCompatActivity {
             TaskItem item = items.get(position);
             holder.tvName.setText(item.name);
             holder.pbProgress.setProgress(item.progress);
-            holder.tvStatus.setText("Status: " + (item.progress == 100 ? "Completed" : "Processing") + " (" + item.progress + "%)");
+            String statusStr = (item.status == 0 ? "Success" : (item.status == 1 ? "Downloading" : "Waiting"));
+            holder.tvStatus.setText(statusStr + " (" + item.progress + "%)");
             holder.btnDelete.setOnClickListener(v -> deleteTask(item.id));
         }
 
