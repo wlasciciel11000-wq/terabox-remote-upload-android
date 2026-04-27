@@ -306,13 +306,18 @@ public class MainActivity extends AppCompatActivity {
 
                 try (Response response = client.newCall(precreateRequest).execute()) {
                     String responseData = response.body() != null ? response.body().string() : "{}";
+                    android.util.Log.d("TERABOX_DEBUG", "Precreate URL: " + precreateUrl);
+                    android.util.Log.d("TERABOX_DEBUG", "Precreate Response: " + responseData);
+                    
                     JSONObject json = new JSONObject(responseData);
                     int errno = json.optInt("errno", -1);
 
                     if (errno == 0) {
                         finalizeUpload(fileName, json.optString("uploadid", ""), url, fileSize);
                     } else {
-                        mainHandler.post(() -> tvStatus.setText("Error: " + json.optString("errmsg", "Unknown")));
+                        final String fullResp = responseData;
+                        mainHandler.post(() -> tvStatus.setText("Precreate JSON: " + fullResp));
+                        android.util.Log.e("TERABOX_DEBUG", "Precreate Error JSON: " + fullResp);
                     }
                 }
             } catch (Exception e) {
@@ -396,22 +401,25 @@ public class MainActivity extends AppCompatActivity {
                         .addHeader("Origin", "https://1024terabox.com")
                         .addHeader("X-Requested-With", "XMLHttpRequest")
                         .post(createBody)
-                        .build();
-
-                try (Response response = client.newCall(request).execute()) {
+                        try (Response response = client.newCall(request).execute()) {
                     String responseData = response.body() != null ? response.body().string() : "{}";
+                    android.util.Log.d("TERABOX_DEBUG", "Finalize URL: " + createUrl);
+                    android.util.Log.d("TERABOX_DEBUG", "Finalize Response: " + responseData);
+                    
                     JSONObject json = new JSONObject(responseData);
                     int errno = json.optInt("errno", -1);
-                    
-                    mainHandler.post(() -> {
-                        if (errno == 0) {
-                            tvStatus.setText("Status: Task Finalized Successfully");
-                            etLink.setText("");
-                            fetchTaskList();
-                        } else {
-                            tvStatus.setText("Finalize Error: " + errno + " - " + json.optString("errmsg", "Unknown"));
-                        }
-                    });
+
+                    if (errno == 0) {
+                        mainHandler.post(() -> {
+                            tvStatus.setText("Status: Success! File uploaded.");
+                            Toast.makeText(MainActivity.this, "Upload successful!", Toast.LENGTH_LONG).show();
+                        });
+                    } else {
+                        final String fullResp = responseData;
+                        mainHandler.post(() -> tvStatus.setText("Finalize JSON: " + fullResp));
+                        android.util.Log.e("TERABOX_DEBUG", "Finalize Error JSON: " + fullResp);
+                    }
+                };
                 }
             } catch (Exception e) { }
         });
