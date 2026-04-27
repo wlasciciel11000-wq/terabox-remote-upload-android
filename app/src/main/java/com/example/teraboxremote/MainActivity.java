@@ -372,16 +372,18 @@ public class MainActivity extends AppCompatActivity {
                 String blockList = "[]"; 
                 String currentTime = String.valueOf(System.currentTimeMillis() / 1000);
                 
+                // Hybrid approach: Move path, size, and block_list to URL (Query Params)
+                // and keep uploadid, isdir, rtype in the Body. This is required by some Terabox API versions.
                 String createUrl = "https://1024terabox.com/api/create?app_id=" + APP_ID 
                         + "&web=1&channel=dubox&clienttype=0"
                         + "&jsToken=" + jsToken
-                        + "&dp-logid=" + dpLogId;
+                        + "&dp-logid=" + dpLogId
+                        + "&path=" + java.net.URLEncoder.encode("/" + fileName, "UTF-8")
+                        + "&size=" + fileSize
+                        + "&block_list=" + java.net.URLEncoder.encode(blockList, "UTF-8");
 
                 FormBody createBody = new FormBody.Builder()
-                        .add("path", "/" + fileName)
-                        .add("size", String.valueOf(fileSize))
                         .add("uploadid", uploadId)
-                        .add("block_list", blockList)
                         .add("isdir", "0")
                         .add("rtype", "1")
                         .build();
