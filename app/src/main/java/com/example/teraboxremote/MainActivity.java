@@ -281,19 +281,18 @@ public class MainActivity extends AppCompatActivity {
                     if (!lastPart.isEmpty()) fileName = lastPart;
                 }
 
-                // Precreate parameters synchronized with Alist driver
+                // Precreate fix: Use FormBody instead of MultipartBody for precreate, 
+                // and ensure parameters are exactly as expected by the adding task logic.
                 String dummyMd5 = "d41d8cd98f00b204e9800998ecf8427e";
                 String blockList = "[\"" + dummyMd5 + "\"]";
-                String currentTime = String.valueOf(System.currentTimeMillis() / 1000);
                 
-                MultipartBody precreateBody = new MultipartBody.Builder()
-                        .setType(MultipartBody.FORM)
-                        .addFormDataPart("path", "/" + fileName)
-                        .addFormDataPart("size", String.valueOf(fileSize))
-                        .addFormDataPart("isdir", "0")
-                        .addFormDataPart("autoinit", "1")
-                        .addFormDataPart("block_list", blockList)
-                        .addFormDataPart("local_mtime", currentTime)
+                FormBody precreateBody = new FormBody.Builder()
+                        .add("path", "/" + fileName)
+                        .add("size", String.valueOf(fileSize))
+                        .add("isdir", "0")
+                        .add("autoinit", "1")
+                        .add("block_list", blockList)
+                        .add("method", "precreate") // Explicitly specify method
                         .build();
 
                 Request precreateRequest = new Request.Builder()
@@ -378,15 +377,13 @@ public class MainActivity extends AppCompatActivity {
                         + "&jsToken=" + jsToken
                         + "&dp-logid=" + dpLogId;
 
-                MultipartBody createBody = new MultipartBody.Builder()
-                        .setType(MultipartBody.FORM)
-                        .addFormDataPart("path", "/" + fileName)
-                        .addFormDataPart("size", String.valueOf(fileSize))
-                        .addFormDataPart("uploadid", uploadId)
-                        .addFormDataPart("block_list", blockList)
-                        .addFormDataPart("isdir", "0")
-                        .addFormDataPart("rtype", "1")
-                        .addFormDataPart("local_mtime", currentTime)
+                FormBody createBody = new FormBody.Builder()
+                        .add("path", "/" + fileName)
+                        .add("size", String.valueOf(fileSize))
+                        .add("uploadid", uploadId)
+                        .add("block_list", blockList)
+                        .add("isdir", "0")
+                        .add("rtype", "1")
                         .build();
 
                 Request request = new Request.Builder()
