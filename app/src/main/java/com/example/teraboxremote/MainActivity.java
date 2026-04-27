@@ -252,8 +252,6 @@ public class MainActivity extends AppCompatActivity {
             return;
         }
 
-        // For Remote Upload (Offline Add), we don't need precreate. 
-        // Precreate is for uploading local files.
         addOfflineTask(url);
     }
 
@@ -263,16 +261,16 @@ public class MainActivity extends AppCompatActivity {
                 mainHandler.post(() -> tvStatus.setText("Status: Adding remote task..."));
                 String dpLogId = generateDpLogId();
                 
-                // Use 1024terabox.com or terabox.com consistently
-                String offlineUrl = "https://www.1024terabox.com/api/offline/add?app_id=" + APP_ID 
-                        + "&web=1&channel=dubox&clienttype=0"
+                // REST API endpoint often more stable for 405 issues
+                String offlineUrl = "https://www.1024terabox.com/rest/2.0/services/cloud_dl?method=add_task"
+                        + "&app_id=" + APP_ID 
+                        + "&web=1&channel=dubox&clienttype=5"
                         + "&jsToken=" + jsToken
-                        + "&bdstoken=" + bdstoken
                         + "&dp-logid=" + dpLogId;
 
                 FormBody formBody = new FormBody.Builder()
-                        .add("save_path", "/")
                         .add("source_url", sourceUrl)
+                        .add("save_path", "/")
                         .build();
 
                 Request request = new Request.Builder()
@@ -280,6 +278,7 @@ public class MainActivity extends AppCompatActivity {
                         .addHeader("Cookie", allCookies)
                         .addHeader("User-Agent", USER_AGENT)
                         .addHeader("Referer", "https://www.1024terabox.com/main")
+                        .addHeader("Origin", "https://www.1024terabox.com")
                         .post(formBody)
                         .build();
 
@@ -313,11 +312,14 @@ public class MainActivity extends AppCompatActivity {
         executor.execute(() -> {
             try {
                 String dpLogId = generateDpLogId();
-                String listUrl = "https://www.1024terabox.com/api/offline/list?app_id=" + APP_ID 
-                        + "&web=1&channel=dubox&clienttype=0"
+                String listUrl = "https://www.1024terabox.com/rest/2.0/services/cloud_dl?method=list_task"
+                        + "&app_id=" + APP_ID 
+                        + "&web=1&channel=dubox&clienttype=5"
                         + "&jsToken=" + jsToken
-                        + "&bdstoken=" + bdstoken
-                        + "&dp-logid=" + dpLogId;
+                        + "&dp-logid=" + dpLogId
+                        + "&need_report=1"
+                        + "&num=100"
+                        + "&page=1";
 
                 Request request = new Request.Builder()
                         .url(listUrl)
@@ -364,27 +366,21 @@ public class MainActivity extends AppCompatActivity {
                 mainHandler.post(() -> tvStatus.setText("Status: Deleting task..."));
                 
                 String dpLogId = generateDpLogId();
-                
-                // TeraBox requires task_ids to be a JSON array string
-                // Important: It must be URL encoded if passed in query
-                String taskIdsJson = "[\"" + taskId + "\"]";
-                
-                String delUrl = "https://www.1024terabox.com/api/offline/delete"
-                        + "?app_id=" + APP_ID 
+                String delUrl = "https://www.1024terabox.com/rest/2.0/services/cloud_dl?method=cancel_task"
+                        + "&app_id=" + APP_ID 
                         + "&web=1" 
                         + "&channel=dubox" 
-                        + "&clienttype=0"
+                        + "&clienttype=5"
                         + "&jsToken=" + jsToken
-                        + "&bdstoken=" + bdstoken
                         + "&dp-logid=" + dpLogId
-                        + "&task_ids=" + java.net.URLEncoder.encode(taskIdsJson, "UTF-8");
+                        + "&task_ids=[\"" + taskId + "\"]";
 
                 Request request = new Request.Builder()
                         .url(delUrl)
                         .addHeader("Cookie", allCookies)
                         .addHeader("User-Agent", USER_AGENT)
                         .addHeader("Referer", "https://www.1024terabox.com/main")
-                        .post(new FormBody.Builder().build()) // Empty POST body
+                        .post(new FormBody.Builder().build())
                         .build();
 
                 try (Response response = client.newCall(request).execute()) {
