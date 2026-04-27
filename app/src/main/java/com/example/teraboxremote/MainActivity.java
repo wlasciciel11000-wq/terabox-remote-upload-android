@@ -368,10 +368,9 @@ public class MainActivity extends AppCompatActivity {
         executor.execute(() -> {
             try {
                 String dpLogId = generateDpLogId();
-                // Final fix based on Alist/Pahadi10 analysis: Use MultipartBody for 'create'
-                // and ensure all required parameters are present in the body.
-                String dummyMd5 = "d41d8cd98f00b204e9800998ecf8427e";
-                String blockList = "[\"" + dummyMd5 + "\"]";
+                // AI Consultation Result: For Remote Upload, block_list MUST be an empty array "[]"
+                // in the 'create' phase, because no physical slices were uploaded.
+                String blockList = "[]"; 
                 String currentTime = String.valueOf(System.currentTimeMillis() / 1000);
                 
                 String createUrl = "https://1024terabox.com/api/create?app_id=" + APP_ID 
