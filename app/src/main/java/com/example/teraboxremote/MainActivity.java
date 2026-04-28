@@ -290,7 +290,9 @@ public class MainActivity extends AppCompatActivity {
                         try {
                             JSONObject json = new JSONObject(responseData);
                             int errno = json.optInt("errno", -1);
-                            if (errno == 0) {
+                            String taskId = json.optString("task_id", "");
+                            
+                            if (errno == 0 || !taskId.isEmpty()) {
                                 tvStatus.setText("Status: Task added successfully!");
                                 Toast.makeText(MainActivity.this, "Task added!", Toast.LENGTH_SHORT).show();
                             } else {
