@@ -55,7 +55,10 @@ public class MainActivity extends AppCompatActivity {
     private String bdstoken = "";
     private String allCookies = "";
     private final String APP_ID = "250528";
-    private final String USER_AGENT = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36";
+    
+    // Updated User-Agent to official TeraBox Android App string to bypass download blocks
+    private final String USER_AGENT = "terabox;10.15.1;Android;12;Pixel 6";
+    private final String WEB_USER_AGENT = "Mozilla/5.0 (Linux; Android 12; Pixel 6) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Mobile Safari/537.36";
     
     private final OkHttpClient client = new OkHttpClient.Builder()
             .connectTimeout(60, TimeUnit.SECONDS)
@@ -107,7 +110,7 @@ public class MainActivity extends AppCompatActivity {
         webSettings.setDisplayZoomControls(false);
         webSettings.setUseWideViewPort(true);
         webSettings.setLoadWithOverviewMode(true);
-        webSettings.setUserAgentString(USER_AGENT);
+        webSettings.setUserAgentString(WEB_USER_AGENT);
         webView.setFocusable(true);
         webView.setFocusableInTouchMode(true);
         
@@ -150,7 +153,7 @@ public class MainActivity extends AppCompatActivity {
                 Request request = new Request.Builder()
                         .url("https://www.1024terabox.com/main")
                         .addHeader("Cookie", allCookies)
-                        .addHeader("User-Agent", USER_AGENT)
+                        .addHeader("User-Agent", WEB_USER_AGENT)
                         .get()
                         .build();
 
@@ -261,7 +264,6 @@ public class MainActivity extends AppCompatActivity {
                 mainHandler.post(() -> tvStatus.setText("Status: Adding remote task..."));
                 String dpLogId = generateDpLogId();
                 
-                // Fixed: Added bdstoken and rtype=1 to the URL parameters
                 String offlineUrl = "https://www.1024terabox.com/rest/2.0/services/cloud_dl?method=add_task"
                         + "&app_id=" + APP_ID 
                         + "&web=1&channel=dubox&clienttype=5"
@@ -279,7 +281,7 @@ public class MainActivity extends AppCompatActivity {
                 Request request = new Request.Builder()
                         .url(offlineUrl)
                         .addHeader("Cookie", allCookies)
-                        .addHeader("User-Agent", USER_AGENT)
+                        .addHeader("User-Agent", USER_AGENT) // Use official app UA
                         .addHeader("Referer", "https://www.1024terabox.com/main")
                         .addHeader("Origin", "https://www.1024terabox.com")
                         .post(formBody)
@@ -372,6 +374,9 @@ public class MainActivity extends AppCompatActivity {
                 mainHandler.post(() -> tvStatus.setText("Status: Deleting task..."));
                 
                 String dpLogId = generateDpLogId();
+                
+                // Fixed: Changed task_ids format from JSON array string to simple comma-separated string
+                // Also ensured it's sent in FormBody for POST request
                 String delUrl = "https://www.1024terabox.com/rest/2.0/services/cloud_dl?method=cancel_task"
                         + "&app_id=" + APP_ID 
                         + "&web=1" 
@@ -379,15 +384,18 @@ public class MainActivity extends AppCompatActivity {
                         + "&clienttype=5"
                         + "&jsToken=" + jsToken
                         + "&bdstoken=" + bdstoken
-                        + "&dp-logid=" + dpLogId
-                        + "&task_ids=[\"" + taskId + "\"]";
+                        + "&dp-logid=" + dpLogId;
+
+                FormBody formBody = new FormBody.Builder()
+                        .add("task_ids", taskId) // Just the ID, not ["ID"]
+                        .build();
 
                 Request request = new Request.Builder()
                         .url(delUrl)
                         .addHeader("Cookie", allCookies)
                         .addHeader("User-Agent", USER_AGENT)
                         .addHeader("Referer", "https://www.1024terabox.com/main")
-                        .post(new FormBody.Builder().build())
+                        .post(formBody)
                         .build();
 
                 try (Response response = client.newCall(request).execute()) {
