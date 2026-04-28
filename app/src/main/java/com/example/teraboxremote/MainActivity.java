@@ -272,7 +272,8 @@ public class MainActivity extends AppCompatActivity {
                 FormBody formBody = new FormBody.Builder()
                         .add("source_url", sourceUrl)
                         .add("save_path", "/")
-                        .add("rtype", "1") // Remote type
+                        .add("rtype", "0") 
+                        .add("bdstoken", bdstoken)
                         .build();
 
                 Request request = new Request.Builder()
